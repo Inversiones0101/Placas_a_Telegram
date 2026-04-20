@@ -1,0 +1,68 @@
+name: Placas a Telegram
+
+on:
+  schedule:
+    # Horarios fijos en UTC (AR = UTC-3)
+    # 12:00 AR = 15:00 UTC
+    # 13:00 AR = 16:00 UTC
+    # 14:00 AR = 17:00 UTC
+    # 15:00 AR = 18:00 UTC
+    # 16:00 AR = 19:00 UTC
+    # 17:00 AR = 20:00 UTC
+    # 17:30 AR = 20:30 UTC
+    - cron: '0 15 * * 1-5'     # 12:00 AR — imagen web
+    - cron: '0 16 * * 1-5'     # 13:00 AR — visor ARG
+    - cron: '0 17 * * 1-5'     # 14:00 AR — imagen web
+    - cron: '0 18 * * 1-5'     # 15:00 AR — visor ARG
+    - cron: '0 19 * * 1-5'     # 16:00 AR — imagen web
+    - cron: '0 20 * * 1-5'     # 17:00 AR — imagen cierre + visor ARG
+    - cron: '30 20 * * 1-5'    # 17:30 AR — visor BCRA
+
+  workflow_dispatch:   # ejecución manual para pruebas
+
+permissions:
+  contents: write
+
+jobs:
+  placas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8   # Playwright + Pillow pueden tomar ~40s cada captura
+
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Instalar Playwright + Chromium
+        run: |
+          playwright install chromium --with-deps
+
+      - name: Ejecutar Placas
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TZ: "America/Argentina/Buenos_Aires"
+        run: python main.py
+
+      - name: Guardar estado en repo
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          [ -f estado_envios.csv ] && git add estado_envios.csv
+          [ -f visor_arg.png     ] && git add visor_arg.png
+          [ -f visor_bcra.png    ] && git add visor_bcra.png
+          git diff --staged --quiet && echo "Sin cambios nuevos" || git commit -m "Bot: placas [skip ci]"
+          git push || echo "Nada que pushear"
