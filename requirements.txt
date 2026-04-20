@@ -1,0 +1,7 @@
+requests
+pandas
+pillow
+pytz
+playwright
+bcraapi
+urllib3
