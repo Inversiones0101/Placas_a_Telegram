@@ -258,7 +258,7 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
         combinar_con = cfg.get("combinar_con")
 
         if combinar_con and combinar_con in imgs_capturadas and nombre in imgs_capturadas:
-            # Combinar las dos imágenes en una sola
+            # Ambas capturas exitosas → combinar y enviar juntas
             img_a = imgs_capturadas[nombre]
             img_b = imgs_capturadas[combinar_con]
             img_final = _combinar_imagenes(img_a, img_b)
@@ -275,8 +275,8 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
             enviados.add(combinar_con)
             print(f"    📨 Enviado combinado: {nombre} + {combinar_con}")
 
-        elif nombre in imgs_capturadas and combinar_con is None:
-            # Enviar individualmente
+        elif combinar_con and nombre in imgs_capturadas and combinar_con not in imgs_capturadas:
+            # El destino de combinación falló → enviar origen individualmente como fallback
             tmp_path = f"captura_{nombre.lower()}.png"
             imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
             caption  = (
@@ -285,7 +285,45 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
             )
             tg_foto(tmp_path, caption)
             enviados.add(nombre)
-            print(f"    📨 Enviado: {nombre}")
+            print(f"    📨 Enviado individual (fallback, destino falló): {nombre}")
+
+        elif nombre in imgs_capturadas and combinar_con is None:
+            # Verificar que este elemento no sea el destino de otro combinar_con
+            # Si lo es, ya fue enviado como parte del combo y no debe enviarse de nuevo
+            es_destino = any(
+                c.get("combinar_con") == nombre
+                for c in activas.values()
+            )
+            if es_destino:
+                # Ya fue procesado como parte de un combo (o su origen falló y
+                # no había forma de enviarlo). Solo enviar si el origen no fue capturado.
+                origen = next(
+                    (k for k, c in activas.items() if c.get("combinar_con") == nombre),
+                    None
+                )
+                if origen and origen not in imgs_capturadas:
+                    # El origen falló → enviar este destino individualmente como fallback
+                    tmp_path = f"captura_{nombre.lower()}.png"
+                    imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
+                    caption  = (
+                        f"{emoji} *{texto_estado}* — {ts} AR\n"
+                        f"{cfg.get('caption', nombre)}"
+                    )
+                    tg_foto(tmp_path, caption)
+                    enviados.add(nombre)
+                    print(f"    📨 Enviado individual (fallback, origen falló): {nombre}")
+                # Si el origen SÍ fue capturado, ya se procesó en el loop anterior
+            else:
+                # Envío individual normal
+                tmp_path = f"captura_{nombre.lower()}.png"
+                imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
+                caption  = (
+                    f"{emoji} *{texto_estado}* — {ts} AR\n"
+                    f"{cfg.get('caption', nombre)}"
+                )
+                tg_foto(tmp_path, caption)
+                enviados.add(nombre)
+                print(f"    📨 Enviado: {nombre}")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -479,8 +517,9 @@ def _bcra_variable(var_id: int) -> float | None:
     """
     try:
         from bcraapi import estadisticas
+        from datetime import timedelta
         hoy   = hora_ar().strftime("%Y-%m-%d")
-        desde = hora_ar().replace(day=hora_ar().day - 10).strftime("%Y-%m-%d")
+        desde = (hora_ar() - timedelta(days=15)).strftime("%Y-%m-%d")
         df = estadisticas.datos_monetarias(
             id_variable=var_id,
             desde=desde,
