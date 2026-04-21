@@ -154,26 +154,6 @@ def _get_font(size: int, bold: bool = False):
                 pass
     return ImageFont.load_default()
 
-def _combinar_imagenes(img1: Image.Image, img2: Image.Image,
-                       gap: int = 12) -> Image.Image:
-    """
-    Pega dos imágenes verticalmente en una sola, con un gap entre ellas.
-    Ambas se redimensionan al mismo ancho (el mayor de las dos).
-    """
-    ancho = max(img1.width, img2.width)
-    # Redimensionar al mismo ancho manteniendo proporción
-    if img1.width != ancho:
-        img1 = img1.resize((ancho, int(img1.height * ancho / img1.width)), Image.LANCZOS)
-    if img2.width != ancho:
-        img2 = img2.resize((ancho, int(img2.height * ancho / img2.width)), Image.LANCZOS)
-
-    alto   = img1.height + gap + img2.height
-    canvas = Image.new("RGB", (ancho, alto), "#111111")
-    canvas.paste(img1, (0, 0))
-    canvas.paste(img2, (0, img1.height + gap))
-    return canvas
-
-
 def generar_Imagen_ARG(estado: str = "Abierto"):
     """
     Visita cada URL activa en CAPTURAS_WEB con Playwright.
@@ -248,82 +228,20 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
 
         browser.close()
 
-    # ── Procesar envíos (individuales o combinados) ────────────────
-    enviados = set()
-
+    # ── Enviar cada imagen individualmente ────────────────────────
     for nombre, cfg in activas.items():
-        if nombre in enviados:
+        if nombre not in imgs_capturadas:
+            print(f"    ⚠️  {nombre}: no capturado, omitiendo envío.")
             continue
 
-        combinar_con = cfg.get("combinar_con")
-
-        if combinar_con and combinar_con in imgs_capturadas and nombre in imgs_capturadas:
-            # Ambas capturas exitosas → combinar y enviar juntas
-            img_a = imgs_capturadas[nombre]
-            img_b = imgs_capturadas[combinar_con]
-            img_final = _combinar_imagenes(img_a, img_b)
-            tmp_path  = f"captura_{nombre.lower()}_combo.png"
-            img_final.save(tmp_path, "PNG", optimize=True)
-
-            caption = (
-                f"{emoji} *{texto_estado}* — {ts} AR\n"
-                f"{cfg.get('caption', nombre)}  ·  "
-                f"{activas[combinar_con].get('caption', combinar_con)}"
-            )
-            tg_foto(tmp_path, caption)
-            enviados.add(nombre)
-            enviados.add(combinar_con)
-            print(f"    📨 Enviado combinado: {nombre} + {combinar_con}")
-
-        elif combinar_con and nombre in imgs_capturadas and combinar_con not in imgs_capturadas:
-            # El destino de combinación falló → enviar origen individualmente como fallback
-            tmp_path = f"captura_{nombre.lower()}.png"
-            imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
-            caption  = (
-                f"{emoji} *{texto_estado}* — {ts} AR\n"
-                f"{cfg.get('caption', nombre)}"
-            )
-            tg_foto(tmp_path, caption)
-            enviados.add(nombre)
-            print(f"    📨 Enviado individual (fallback, destino falló): {nombre}")
-
-        elif nombre in imgs_capturadas and combinar_con is None:
-            # Verificar que este elemento no sea el destino de otro combinar_con
-            # Si lo es, ya fue enviado como parte del combo y no debe enviarse de nuevo
-            es_destino = any(
-                c.get("combinar_con") == nombre
-                for c in activas.values()
-            )
-            if es_destino:
-                # Ya fue procesado como parte de un combo (o su origen falló y
-                # no había forma de enviarlo). Solo enviar si el origen no fue capturado.
-                origen = next(
-                    (k for k, c in activas.items() if c.get("combinar_con") == nombre),
-                    None
-                )
-                if origen and origen not in imgs_capturadas:
-                    # El origen falló → enviar este destino individualmente como fallback
-                    tmp_path = f"captura_{nombre.lower()}.png"
-                    imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
-                    caption  = (
-                        f"{emoji} *{texto_estado}* — {ts} AR\n"
-                        f"{cfg.get('caption', nombre)}"
-                    )
-                    tg_foto(tmp_path, caption)
-                    enviados.add(nombre)
-                    print(f"    📨 Enviado individual (fallback, origen falló): {nombre}")
-                # Si el origen SÍ fue capturado, ya se procesó en el loop anterior
-            else:
-                # Envío individual normal
-                tmp_path = f"captura_{nombre.lower()}.png"
-                imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
-                caption  = (
-                    f"{emoji} *{texto_estado}* — {ts} AR\n"
-                    f"{cfg.get('caption', nombre)}"
-                )
-                tg_foto(tmp_path, caption)
-                enviados.add(nombre)
-                print(f"    📨 Enviado: {nombre}")
+        tmp_path = f"captura_{nombre.lower()}.png"
+        imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
+        caption = (
+            f"{emoji} *{texto_estado}* — {ts} AR\n"
+            f"{cfg.get('caption', nombre)}"
+        )
+        tg_foto(tmp_path, caption)
+        print(f"    📨 Enviado: {nombre}")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -404,7 +322,10 @@ def generar_Visor_ARG() -> str:
             "p_us": p_us, "v_us": v_us,
             "p_ba": p_ba, "v_ba": v_ba,
         })
-        print(f"  {ticker_us}: US ${p_us}  {v_us:+.2f}%  |  BA ${p_ba}  {v_ba:+.2f}%" if p_us else f"  {ticker_us}: sin dato")
+        # Log seguro — nunca falla aunque p_us/p_ba/v_us/v_ba sean None
+        us_str = f"US ${p_us:.3f} {v_us:+.2f}%" if p_us is not None else "US —"
+        ba_str = f"BA ${p_ba:.2f} {v_ba:+.2f}%" if p_ba is not None else "BA —"
+        print(f"  {ticker_us}: {us_str}  |  {ba_str}")
 
     # ── Layout ────────────────────────────────────────────────────
     cw   = D["card_w"]
