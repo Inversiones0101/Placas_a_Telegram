@@ -113,40 +113,31 @@ VISOR_ARG_PARES = {
 # ───────────────────────────────────────────────────────────────────
 # 3. CAPTURAS DE PANTALLA WEB — generar_Imagen_ARG()
 # ───────────────────────────────────────────────────────────────────
-# Cada entrada define una URL a visitar y cómo capturar el gráfico.
+# Cada entrada = una URL → una imagen → un mensaje a Telegram.
 #
 # Campos:
 #   url            → página a abrir con Playwright
-#   wait_selector  → espera a que este elemento CSS esté visible
-#                    antes de capturar (para gráficos JS dinámicos)
-#   crop_selector  → elemento CSS a recortar en la captura final
-#   zoom           → factor de ampliación (2.0 = doble tamaño)
-#   delay_ms       → ms extra después de wait_selector
-#                    (tiempo para que el canvas JS termine de dibujar)
+#   wait_selector  → CSS a esperar antes de capturar (gráficos JS)
+#   crop_selector  → elemento CSS a recortar
+#   zoom           → factor de ampliación (1.8 = x1.8)
+#   delay_ms       → ms extra para que el canvas JS termine de dibujar
 #   caption        → texto del mensaje en Telegram
-#   combinar_con   → clave de otra captura para pegar ambas en una
-#                    sola imagen (None = enviar individualmente)
 #   activo         → True/False para activar/desactivar sin borrar
 
 CAPTURAS_WEB = {
 
     # ── CAUCIÓN 1D — MAE A3 ───────────────────────────────────────
-    # Selector confirmado por inspector: div.tv-lightweight-charts
-    # que contiene el canvas del gráfico intradiario de cauciones
     "CAUCION_1D_MAE": {
         "url":           "https://marketdata.mae.com.ar/cauciones",
         "wait_selector": "div.tv-lightweight-charts",
-        "crop_selector": "div.relative.h-full",   # contenedor gráfico (547×280)
+        "crop_selector": "div.relative.h-full",
         "zoom":          1.8,
-        "delay_ms":      4000,    # el gráfico de MAE tarda ~3-4s en renderizar
+        "delay_ms":      4000,
         "caption":       "📊 Caución 1D — MAE A3",
-        "combinar_con":  "USMEP_MAE",   # se combina con USMEP en una sola imagen
         "activo":        True,
     },
 
     # ── DÓLAR MEP (USMEP) — MAE A3 ────────────────────────────────
-    # Selector confirmado por inspector: div.grid.grid-cols-1.gap-3.mt-2
-    # contiene el gráfico completo con título "USMEP" (538×349)
     "USMEP_MAE": {
         "url":           "https://marketdata.mae.com.ar/titulos/FOR/USMEP?plazo=000&segmento=M&moneda=T",
         "wait_selector": "div.grid.grid-cols-1.gap-3.mt-2",
@@ -154,38 +145,28 @@ CAPTURAS_WEB = {
         "zoom":          1.8,
         "delay_ms":      4000,
         "caption":       "💵 Dólar MEP (USMEP) — MAE A3",
-        "combinar_con":  None,    # es el destino de la combinación, no el origen
         "activo":        True,
     },
 
     # ── AL30 Intradiario — IOL ────────────────────────────────────
-    # Confirmado por inspector:
-    #   AL30 → div#graficoIntradiario (ID fijo, más estable) → 505×220
-    #   Contiene: div.highcharts-container → svg.highcharts-root
-    # Usamos #graficoIntradiario para AL30 (ID fijo = selector más robusto)
     "AL30_IOL": {
         "url":           "https://iol.invertironline.com/titulo/cotizacion/BCBA/AL30/BONO-REP.-ARGENTINA-USD-STEP-UP-2030/",
         "wait_selector": "#graficoIntradiario svg.highcharts-root",
-        "crop_selector": "#graficoIntradiario",   # div con ID fijo, incluye todo el gráfico
+        "crop_selector": "#graficoIntradiario",
         "zoom":          2.2,
         "delay_ms":      5000,
         "caption":       "📈 AL30 Intradiario — IOL",
-        "combinar_con":  "GD30_IOL",
         "activo":        True,
     },
 
     # ── GD30 Intradiario — IOL ────────────────────────────────────
-    # Confirmado por inspector:
-    #   GD30 → div.highcharts-container (ID dinámico, usamos la clase) → 505×220
-    #   La clase .highcharts-container es única en la página del gráfico
     "GD30_IOL": {
         "url":           "https://iol.invertironline.com/titulo/cotizacion/BCBA/GD30/BONOS-REP.-ARG.-U-S-STEP-UP-V.09-07-30/",
         "wait_selector": ".highcharts-container svg.highcharts-root",
-        "crop_selector": ".highcharts-container",   # clase estable en ambos bonos
+        "crop_selector": ".highcharts-container",
         "zoom":          2.2,
         "delay_ms":      5000,
         "caption":       "📈 GD30 Intradiario — IOL",
-        "combinar_con":  None,
         "activo":        True,
     },
 
@@ -197,7 +178,6 @@ CAPTURAS_WEB = {
     #     "zoom":          2.2,
     #     "delay_ms":      5000,
     #     "caption":       "📊 Merval Intradiario — IOL",
-    #     "combinar_con":  None,
     #     "activo":        False,
     # },
 }
