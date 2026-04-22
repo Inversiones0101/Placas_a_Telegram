@@ -428,13 +428,8 @@ def generar_Visor_ARG() -> str:
 def _bcra_variable(var_id: int) -> float | None:
     """
     Obtiene el valor más reciente de una variable BCRA usando bcraapi.
-    Consulta los últimos 10 días para asegurar que haya dato disponible
-    (el BCRA publica con rezago, así siempre hay al menos T-2 disponible).
-
-    Uso de bcraapi:
-        from bcraapi import estadisticas
-        df = estadisticas.datos_monetarias(id_variable=VAR_ID, desde=DESDE, hasta=HOY)
-        valor = df["valor"].iloc[-1]   # último dato disponible
+    El patch SSL (verify=False) se aplica en generar_Visor_BCRA() antes
+    de llamar a esta función, por lo que bcraapi ya no falla con SSLError.
     """
     try:
         from bcraapi import estadisticas
@@ -523,6 +518,20 @@ def generar_Visor_BCRA() -> str:
 
     print(f"\n🏦 Generando Visor BCRA ({ts})...")
 
+    # ── Deshabilitar SSL globalmente para esta función ─────────────
+    # api.bcra.gob.ar tiene un certificado SSL que no está en la cadena
+    # de confianza de Ubuntu (GitHub Actions). Se aplica el patch una
+    # sola vez antes de todas las consultas y se restaura al terminar.
+    import urllib3
+    import requests as _req
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    _orig_session_init = _req.Session.__init__
+    def _ssl_off(self, *a, **kw):
+        _orig_session_init(self, *a, **kw)
+        self.verify = False
+    _req.Session.__init__ = _ssl_off
+    print("  🔓 SSL verify deshabilitado para api.bcra.gob.ar")
+
     # ── 1. Recolectar datos via bcraapi ───────────────────────────
     # IDs directos necesarios (incluye los usados en ratios)
     IDS_DIRECTOS = [1, 2, 4, 6, 10, 11, 12, 13]
@@ -534,6 +543,10 @@ def generar_Visor_BCRA() -> str:
     # Riesgo País (fuente diferente)
     print(f"  → Consultando Riesgo País (argentinadatos.com)...")
     raw["rp"] = _riesgo_pais()
+
+    # ── Restaurar SSL ──────────────────────────────────────────────
+    _req.Session.__init__ = _orig_session_init
+    print("  🔒 SSL verify restaurado")
 
     # ── 2. Calcular ratios ────────────────────────────────────────
     def v(k):
