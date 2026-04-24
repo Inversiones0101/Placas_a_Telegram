@@ -445,45 +445,40 @@ def generar_Visor_ARG() -> str:
 
 def _bcra_variable(var_id: int) -> float | None:
     """
-    Obtiene el valor más reciente de una variable BCRA consultando
-    la API oficial DIRECTAMENTE con requests (verify=False).
+    Obtiene el valor más reciente de una variable BCRA.
+    Endpoint oficial: GET https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{id}
 
-    Se eliminó bcraapi porque no permite configurar verify=False
-    desde fuera de la librería, causando SSLError en GitHub Actions.
-
-    Endpoint: GET https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{id}
-               ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
-
-    Respuesta JSON:
-      { "results": [ {"idVariable": N, "fecha": "YYYY-MM-DD", "valor": X}, ... ] }
-    El último elemento del array es el dato más reciente.
+    Intenta primero con verify=True (usando el certificado Let's Encrypt
+    instalado en el .yml). Si falla por SSL, reintenta con verify=False.
+    Respuesta JSON: { "results": [ {"fecha": "YYYY-MM-DD", "valor": X}, ... ] }
     """
     from datetime import timedelta
     import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     hoy   = hora_ar().strftime("%Y-%m-%d")
     desde = (hora_ar() - timedelta(days=15)).strftime("%Y-%m-%d")
     url   = f"https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{var_id}"
+    params = {"desde": desde, "hasta": hoy}
 
-    try:
-        r = requests.get(
-            url,
-            params={"desde": desde, "hasta": hoy},
-            verify=False,          # SSL del BCRA no es reconocido por Ubuntu
-            timeout=15,
-        )
-        r.raise_for_status()
-        data = r.json()
-        resultados = data.get("results", [])
-        if resultados:
-            valor = float(resultados[-1]["valor"])
-            print(f"    ✅ ID {var_id}: {valor}")
-            return valor
-        else:
-            print(f"    ⚠️  ID {var_id}: sin datos en el rango {desde} → {hoy}")
-    except Exception as e:
-        print(f"    ⚠️  bcra ID {var_id}: {e}")
+    for verify in (True, False):
+        try:
+            if not verify:
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            r = requests.get(url, params=params, verify=verify, timeout=15)
+            r.raise_for_status()
+            resultados = r.json().get("results", [])
+            if resultados:
+                valor = float(resultados[-1]["valor"])
+                print(f"    ✅ ID {var_id}: {valor} (verify={verify})")
+                return valor
+            else:
+                print(f"    ⚠️  ID {var_id}: sin datos en {desde} → {hoy}")
+                return None
+        except Exception as e:
+            if verify:
+                print(f"    🔄 ID {var_id}: SSL con certs → reintentando sin verify...")
+            else:
+                print(f"    ⚠️  bcra ID {var_id}: {e}")
     return None
 
 
