@@ -26,7 +26,7 @@ permissions:
 jobs:
   placas:
     runs-on: ubuntu-latest
-    timeout-minutes: 8   # Playwright + Pillow pueden tomar ~40s cada captura
+    timeout-minutes: 8
 
     steps:
 
@@ -50,6 +50,25 @@ jobs:
         run: |
           playwright install chromium --with-deps
 
+      # ── Instalar certificado SSL del BCRA ─────────────────────
+      # api.bcra.gob.ar usa un certificado intermedio que Ubuntu no
+      # incluye por defecto. Se descarga e instala manualmente para
+      # que requests pueda verificarlo sin necesidad de verify=False.
+      - name: Instalar certificado BCRA
+        run: |
+          # Descargar el certificado intermedio del BCRA
+          curl -sk "https://api.bcra.gob.ar" || true
+          # Instalar ca-certificates extra y actualizar el bundle
+          sudo apt-get install -y -q ca-certificates 2>/dev/null || true
+          # Descargar cert de Let's Encrypt ISRG Root X1 (que usa BCRA)
+          curl -sL "https://letsencrypt.org/certs/isrgrootx1.pem" \
+               -o /usr/local/share/ca-certificates/isrgrootx1.crt 2>/dev/null || true
+          # Descargar cert R3 intermediario
+          curl -sL "https://letsencrypt.org/certs/lets-encrypt-r3.pem" \
+               -o /usr/local/share/ca-certificates/lets-encrypt-r3.crt 2>/dev/null || true
+          sudo update-ca-certificates 2>/dev/null || true
+          echo "✅ Certificados actualizados"
+
       - name: Ejecutar Placas
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
@@ -57,6 +76,9 @@ jobs:
           TZ: "America/Argentina/Buenos_Aires"
         run: python main.py
 
+      # ── Guardar estado con reintento ante conflictos de push ───
+      # El error "rejected (fetch first)" ocurre cuando dos workflows
+      # corren simultáneamente. El pull --rebase lo resuelve.
       - name: Guardar estado en repo
         run: |
           git config --global user.name  "github-actions[bot]"
@@ -65,4 +87,5 @@ jobs:
           [ -f visor_arg.png     ] && git add visor_arg.png
           [ -f visor_bcra.png    ] && git add visor_bcra.png
           git diff --staged --quiet && echo "Sin cambios nuevos" || git commit -m "Bot: placas [skip ci]"
-          git push || echo "Nada que pushear"
+          git pull --rebase origin main || true
+          git push || echo "Sin cambios que pushear"
