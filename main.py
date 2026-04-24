@@ -18,7 +18,8 @@ from pathlib import Path
 import pytz
 
 from config import (
-    APIS, VISOR_ARG_PARES, CAPTURAS_WEB, VISOR_BCRA_ITEMS,
+    APIS, VISOR_ARG_COL1, VISOR_ARG_COL2, VISOR_ARG_COL3,
+    CAPTURAS_WEB, VISOR_BCRA_ITEMS,
     HORARIOS, ARCHIVOS, DISEÑO_VISOR_ARG, DISEÑO_VISOR_BCRA, MENSAJES,
 )
 
@@ -229,6 +230,14 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
         browser.close()
 
     # ── Enviar cada imagen individualmente ────────────────────────
+    # Caption del caption_key mapea cada captura a su texto en MENSAJES
+    caption_keys = {
+        "CAUCION_1D_MAE": "caucion_caption",
+        "USMEP_MAE":      "usmep_caption",
+        "AL30_IOL":       "al30_caption",
+        "GD30_IOL":       "gd30_caption",
+    }
+
     for nombre, cfg in activas.items():
         if nombre not in imgs_capturadas:
             print(f"    ⚠️  {nombre}: no capturado, omitiendo envío.")
@@ -236,9 +245,14 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
 
         tmp_path = f"captura_{nombre.lower()}.png"
         imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
+
+        # Buscar el texto de caption en MENSAJES, fallback al campo caption del config
+        clave_msg = caption_keys.get(nombre)
+        texto_cap = MENSAJES.get(clave_msg, cfg.get("caption", nombre))
+
         caption = (
             f"{emoji} *{texto_estado}* — {ts} AR\n"
-            f"{cfg.get('caption', nombre)}"
+            f"{texto_cap}"
         )
         tg_foto(tmp_path, caption)
         print(f"    📨 Enviado: {nombre}")
@@ -288,136 +302,140 @@ def _flecha(pct):
 
 def generar_Visor_ARG() -> str:
     """
-    Genera una imagen PNG tipo tarjeta con precios de ADRs, Stocks y CEDEARs.
-    Diseño: grid de pares US | BA, fondo oscuro estilo GitHub.
-    Retorna la ruta de la imagen generada.
+    Genera el Visor ARG con 3 columnas independientes:
+      Col 1: ADR'S / USD  (data912 usa_adrs)
+      Col 2: BYMA / $     (data912 arg_stocks)
+      Col 3: CEDEARS / $  (data912 arg_cedears)
+
+    Cada columna tiene su propia lista de activos configurada en config.py.
+    Las filas de cada columna son independientes entre sí.
     """
     D    = DISEÑO_VISOR_ARG
     ts   = hhmm()
     hoy  = hora_ar().strftime("%d/%m/%Y")
-    pares = list(VISOR_ARG_PARES.items())
-    cache = {}   # cache de APIs ya descargadas
+    cache = {}
 
     print(f"🃏 Generando Visor ARG ({ts})...")
 
-    # ── Recolectar datos ──────────────────────────────────────────
-    filas = []
-    for ticker_us, cfg in pares:
-        nombre = cfg["nombre"]
+    # ── Cargar datos de las 3 columnas ────────────────────────────
+    columnas = [VISOR_ARG_COL1, VISOR_ARG_COL2, VISOR_ARG_COL3]
 
-        # Columna izquierda (US/CEDEAR): puede ser None para activos solo-BYMA
-        p_us, v_us = (None, None)
-        if cfg.get("fuente_us") and cfg.get("fuente_us") in APIS:
-            p_us, v_us = _dato_activo(ticker_us, cfg["fuente_us"], cache)
+    datos_cols = []   # lista de listas: [[{ticker,nombre,precio,pct},...], ...]
+    for col in columnas:
+        filas_col = []
+        for ticker, nombre in col["activos"]:
+            precio, pct = _dato_activo(ticker, col["fuente"], cache)
+            filas_col.append({"ticker": ticker, "nombre": nombre,
+                               "precio": precio, "pct": pct})
+            p_str = f"${precio:.2f}" if precio else "—"
+            v_str = f"{pct:+.2f}%" if pct is not None else "—"
+            print(f"  [{col['cabecera']}] {ticker}: {p_str} {v_str}")
+        datos_cols.append(filas_col)
 
-        # Columna derecha (BA): puede ser None para activos solo-US o CEDEARs sin par
-        p_ba, v_ba = (None, None)
-        if cfg.get("ticker_ba") and cfg.get("fuente_ba"):
-            p_ba, v_ba = _dato_activo(cfg["ticker_ba"], cfg["fuente_ba"], cache)
+    # ── Dimensiones del canvas ────────────────────────────────────
+    cw      = D["card_w"]
+    ch      = D["card_h"]
+    gap     = D["gap"]
+    mg      = D["margin"]
+    pad     = D["padding"]
+    col_gap = D["col_gap"]
 
-        filas.append({
-            "ticker_us": ticker_us,
-            "ticker_ba": cfg.get("ticker_ba"),
-            "nombre":    nombre,
-            "p_us": p_us, "v_us": v_us,
-            "p_ba": p_ba, "v_ba": v_ba,
-        })
-        # Log seguro — nunca falla aunque p_us/p_ba/v_us/v_ba sean None
-        us_str = f"US ${p_us:.3f} {v_us:+.2f}%" if p_us is not None else "US —"
-        ba_str = f"BA ${p_ba:.2f} {v_ba:+.2f}%" if p_ba is not None else "BA —"
-        print(f"  {ticker_us}: {us_str}  |  {ba_str}")
+    header_h  = 56    # altura del header principal
+    col_hdr_h = 26    # altura de la franja de cabecera de columna
+    n_filas   = max(len(d) for d in datos_cols)   # máx filas entre columnas
 
-    # ── Layout ────────────────────────────────────────────────────
-    cw   = D["card_w"]
-    ch   = D["card_h"]
-    gap  = D["gap"]
-    mg   = D["margin"]
-    pad  = D["padding"]
-
-    # Cada fila = 2 tarjetas (US | BA) lado a lado
-    # + 1 fila de header arriba
-    header_h = 60
-    n_filas  = len(filas)
-    canvas_w = mg*2 + cw*2 + gap
-    canvas_h = mg + header_h + gap + n_filas * (ch + gap) + mg
+    canvas_w = mg * 2 + cw * 3 + col_gap * 2
+    canvas_h = (mg + header_h + col_hdr_h + gap
+                + n_filas * (ch + gap) + mg)
 
     img  = Image.new("RGB", (canvas_w, canvas_h), D["bg_canvas"])
     draw = ImageDraw.Draw(img)
 
-    f_title  = _get_font(D["font_title"],  bold=True)
-    f_price  = _get_font(D["font_price"],  bold=True)
-    f_pct    = _get_font(D["font_pct"],    bold=False)
-    f_label  = _get_font(D["font_label"],  bold=False)
-    f_header = _get_font(20, bold=True)
-    f_sub    = _get_font(12, bold=False)
+    # ── Fuentes ───────────────────────────────────────────────────
+    f_header  = _get_font(D["font_header"],  bold=True)
+    f_sub     = _get_font(D["font_sub"],     bold=False)
+    f_col_hdr = _get_font(D["font_col_hdr"], bold=True)
+    f_ticker  = _get_font(D["font_ticker"],  bold=True)
+    f_nombre  = _get_font(D["font_nombre"],  bold=False)
+    f_precio  = _get_font(D["font_precio"],  bold=True)
+    f_pct     = _get_font(D["font_pct"],     bold=False)
 
-    # ── Header del canvas ─────────────────────────────────────────
+    # ── Header principal ──────────────────────────────────────────
     draw.rounded_rectangle(
         [mg, mg, canvas_w - mg, mg + header_h],
         radius=8, fill=D["bg_header"], outline=D["border"]
     )
-    draw.text((mg + pad, mg + 10), "🇦🇷  VISOR ARG", font=f_header, fill=D["accent"])
-    draw.text((mg + pad, mg + 35), f"{ts} AR  ·  {hoy}  ·  Fuente: data912.com",
+    draw.text((mg + pad, mg + 8),
+              MENSAJES["visor_arg_titulo"], font=f_header, fill=D["accent"])
+    draw.text((mg + pad, mg + 34),
+              f"{ts} AR  ·  {hoy}  ·  {MENSAJES['fuente_datos']}",
               font=f_sub, fill=D["text_muted"])
 
-    # ── Columnas US / BA ─────────────────────────────────────────
-    col_labels = ["NYSE / NASDAQ", "BYMA (Pesos)"]
-    for ci, lbl in enumerate(col_labels):
-        cx = mg + ci * (cw + gap)
-        draw.text((cx + cw//2 - 40, mg + header_h + gap//2),
-                  lbl, font=f_label, fill=D["text_muted"])
+    # ── Cabeceras de columna ──────────────────────────────────────
+    y_col_hdr = mg + header_h
+    for ci, col in enumerate(columnas):
+        cx = mg + ci * (cw + col_gap)
+        draw.rounded_rectangle(
+            [cx, y_col_hdr, cx + cw, y_col_hdr + col_hdr_h],
+            radius=4, fill=D["bg_col_hdr"], outline=D["border"]
+        )
+        # Centrar texto de cabecera
+        draw.text((cx + pad, y_col_hdr + 6),
+                  col["cabecera"], font=f_col_hdr, fill=D["col_accent"])
 
-    # ── Tarjetas de cada activo ───────────────────────────────────
-    y_start = mg + header_h + gap + 18
+    # ── Tarjetas de activos ───────────────────────────────────────
+    y_start = mg + header_h + col_hdr_h + gap
 
-    for i, row in enumerate(filas):
-        y = y_start + i * (ch + gap)
+    for ci, (col, filas_col) in enumerate(zip(columnas, datos_cols)):
+        cx = mg + ci * (cw + col_gap)
 
-        for col_idx in range(2):
-            is_us = col_idx == 0
-            cx    = mg + col_idx * (cw + gap)
-
-            precio = row["p_us"] if is_us else row["p_ba"]
-            pct    = row["v_us"] if is_us else row["v_ba"]
-            ticker = row["ticker_us"] if is_us else (row["ticker_ba"] or "—")
+        for ri, row in enumerate(filas_col):
+            y       = y_start + ri * (ch + gap)
+            precio  = row["precio"]
+            pct     = row["pct"]
+            color_v = _color_variacion(pct, D)
 
             # Fondo tarjeta
             draw.rounded_rectangle(
                 [cx, y, cx + cw, y + ch],
-                radius=6, fill=D["bg_card"], outline=D["border"]
+                radius=5, fill=D["bg_card"], outline=D["border"]
             )
 
-            color_v = _color_variacion(pct, D)
-
-            # Barra lateral de color (indicador sube/baja)
-            bar_w = 4
-            draw.rectangle([cx, y+6, cx+bar_w, y+ch-6], fill=color_v)
+            # Barra lateral de color
+            draw.rectangle([cx, y + 4, cx + 3, y + ch - 4], fill=color_v)
 
             x0 = cx + pad
-            # Ticker + nombre
-            draw.text((x0, y + 8),  ticker,        font=f_title, fill=D["text_white"])
-            draw.text((x0, y + 30), row["nombre"],  font=f_label, fill=D["text_muted"])
+
+            # Ticker
+            draw.text((x0, y + 5), row["ticker"],
+                      font=f_ticker, fill=D["text_white"])
+
+            # Nombre corto
+            draw.text((x0, y + 24), row["nombre"],
+                      font=f_nombre, fill=D["text_muted"])
 
             if precio is not None:
-                # Precio
-                precio_str = f"${precio:,.2f}" if precio >= 10 else f"${precio:.3f}"
-                draw.text((x0, y + 52), precio_str, font=f_price, fill=D["text_white"])
+                # Formato precio: si es grande (BYMA/CEDEARS) → sin decimales
+                if precio >= 1000:
+                    p_str = f"${precio:,.0f}"
+                elif precio >= 10:
+                    p_str = f"${precio:.2f}"
+                else:
+                    p_str = f"${precio:.3f}"
+                draw.text((x0, y + 38), p_str,
+                          font=f_precio, fill=D["text_white"])
 
-                # Variación con flecha
+                # Variación %
                 pct_str = f"{_flecha(pct)} {pct:+.2f}%"
-                draw.text((x0, y + 82), pct_str, font=f_pct, fill=color_v)
+                draw.text((x0, y + 62), pct_str,
+                          font=f_pct, fill=color_v)
             else:
-                draw.text((x0, y + 52), "Sin dato", font=f_label, fill=D["neutral"])
-
-    # ── Footer ───────────────────────────────────────────────────
-    footer_y = canvas_h - mg + 4
-    draw.text((mg, footer_y - 16),
-              "data912.com  ·  Inversiones & Algoritmos",
-              font=f_label, fill=D["text_muted"])
+                draw.text((x0, y + 38), "Sin dato",
+                          font=f_nombre, fill=D["neutral"])
 
     path = ARCHIVOS["visor_arg_img"]
     img.save(path, "PNG", optimize=True)
-    print(f"✅ Visor ARG guardado: {path}")
+    print(f"✅ Visor ARG guardado: {path}  ({canvas_w}×{canvas_h}px)")
     return path
 
 
@@ -427,26 +445,45 @@ def generar_Visor_ARG() -> str:
 
 def _bcra_variable(var_id: int) -> float | None:
     """
-    Obtiene el valor más reciente de una variable BCRA usando bcraapi.
-    El patch SSL (verify=False) se aplica en generar_Visor_BCRA() antes
-    de llamar a esta función, por lo que bcraapi ya no falla con SSLError.
+    Obtiene el valor más reciente de una variable BCRA consultando
+    la API oficial DIRECTAMENTE con requests (verify=False).
+
+    Se eliminó bcraapi porque no permite configurar verify=False
+    desde fuera de la librería, causando SSLError en GitHub Actions.
+
+    Endpoint: GET https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{id}
+               ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+
+    Respuesta JSON:
+      { "results": [ {"idVariable": N, "fecha": "YYYY-MM-DD", "valor": X}, ... ] }
+    El último elemento del array es el dato más reciente.
     """
+    from datetime import timedelta
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    hoy   = hora_ar().strftime("%Y-%m-%d")
+    desde = (hora_ar() - timedelta(days=15)).strftime("%Y-%m-%d")
+    url   = f"https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{var_id}"
+
     try:
-        from bcraapi import estadisticas
-        from datetime import timedelta
-        hoy   = hora_ar().strftime("%Y-%m-%d")
-        desde = (hora_ar() - timedelta(days=15)).strftime("%Y-%m-%d")
-        df = estadisticas.datos_monetarias(
-            id_variable=var_id,
-            desde=desde,
-            hasta=hoy,
+        r = requests.get(
+            url,
+            params={"desde": desde, "hasta": hoy},
+            verify=False,          # SSL del BCRA no es reconocido por Ubuntu
+            timeout=15,
         )
-        if df is not None and not df.empty:
-            valor = float(df["valor"].iloc[-1])
+        r.raise_for_status()
+        data = r.json()
+        resultados = data.get("results", [])
+        if resultados:
+            valor = float(resultados[-1]["valor"])
             print(f"    ✅ ID {var_id}: {valor}")
             return valor
+        else:
+            print(f"    ⚠️  ID {var_id}: sin datos en el rango {desde} → {hoy}")
     except Exception as e:
-        print(f"    ⚠️  bcraapi ID {var_id}: {e}")
+        print(f"    ⚠️  bcra ID {var_id}: {e}")
     return None
 
 
@@ -502,15 +539,8 @@ def generar_Visor_BCRA() -> str:
     Genera la tarjeta PNG del Visor BCRA con Pillow.
 
     Fuentes de datos:
-      · bcraapi (pip install bcraapi) → Variables ID: 1,2,4,6,10,11,12,13
-      · argentinadatos.com            → Riesgo País
-
-    Diseño fiel al boceto:
-      · Fondo celeste, borde azul
-      · Header: 'VISOR BCRA' + fecha
-      · Tabla con columnas: INDICADOR | T+0 (Hoy) | T-2 (48hs)
-      · Filas alternadas para legibilidad
-      · Línea vertical separadora entre columnas
+      · API BCRA v4.0 directa con requests verify=False → IDs 1,2,4,6,10,11,12,13
+      · argentinadatos.com → Riesgo País
     """
     D    = DISEÑO_VISOR_BCRA
     hoy  = hora_ar().strftime("%d/%m/%Y")
@@ -518,35 +548,15 @@ def generar_Visor_BCRA() -> str:
 
     print(f"\n🏦 Generando Visor BCRA ({ts})...")
 
-    # ── Deshabilitar SSL globalmente para esta función ─────────────
-    # api.bcra.gob.ar tiene un certificado SSL que no está en la cadena
-    # de confianza de Ubuntu (GitHub Actions). Se aplica el patch una
-    # sola vez antes de todas las consultas y se restaura al terminar.
-    import urllib3
-    import requests as _req
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    _orig_session_init = _req.Session.__init__
-    def _ssl_off(self, *a, **kw):
-        _orig_session_init(self, *a, **kw)
-        self.verify = False
-    _req.Session.__init__ = _ssl_off
-    print("  🔓 SSL verify deshabilitado para api.bcra.gob.ar")
-
-    # ── 1. Recolectar datos via bcraapi ───────────────────────────
-    # IDs directos necesarios (incluye los usados en ratios)
+    # ── 1. Recolectar datos via API BCRA directa ──────────────────
     IDS_DIRECTOS = [1, 2, 4, 6, 10, 11, 12, 13]
     raw = {}
     for vid in IDS_DIRECTOS:
-        print(f"  → Consultando bcraapi ID {vid}...")
+        print(f"  → Consultando BCRA ID {vid}...")
         raw[vid] = _bcra_variable(vid)
 
-    # Riesgo País (fuente diferente)
     print(f"  → Consultando Riesgo País (argentinadatos.com)...")
     raw["rp"] = _riesgo_pais()
-
-    # ── Restaurar SSL ──────────────────────────────────────────────
-    _req.Session.__init__ = _orig_session_init
-    print("  🔒 SSL verify restaurado")
 
     # ── 2. Calcular ratios ────────────────────────────────────────
     def v(k):
@@ -671,7 +681,7 @@ def main():
     # 4 · VISOR ARG 13:00
     if es_hora_exacta(HORARIOS["visor_arg_1"]) and not ya_se_envio("visor_arg_1"):
         path = generar_Visor_ARG()
-        tg_foto(path, f"🇦🇷 *{MENSAJES['visor_arg']}* — {ts} AR\n_Fuente: data912.com_")
+        tg_foto(path, f"*{MENSAJES['visor_arg_tg']}* — {ts} AR\n_{MENSAJES['fuente_datos']}_")
         marcar_enviado("visor_arg_1")
 
     # 5 · IMAGEN WEB 14:00 — Merval Abierto
@@ -682,7 +692,7 @@ def main():
     # 6 · VISOR ARG 15:00
     if es_hora_exacta(HORARIOS["visor_arg_2"]) and not ya_se_envio("visor_arg_2"):
         path = generar_Visor_ARG()
-        tg_foto(path, f"🇦🇷 *{MENSAJES['visor_arg']}* — {ts} AR\n_Fuente: data912.com_")
+        tg_foto(path, f"*{MENSAJES['visor_arg_tg']}* — {ts} AR\n_{MENSAJES['fuente_datos']}_")
         marcar_enviado("visor_arg_2")
 
     # 7 · IMAGEN WEB 16:00 — Merval Abierto
@@ -697,13 +707,13 @@ def main():
 
     if es_hora_exacta(HORARIOS["visor_arg_3"]) and not ya_se_envio("visor_arg_3"):
         path = generar_Visor_ARG()
-        tg_foto(path, f"🇦🇷 *{MENSAJES['visor_arg']}* — Cierre {ts} AR\n_Fuente: data912.com_")
+        tg_foto(path, f"*{MENSAJES['visor_arg_tg']}* — Cierre {ts} AR\n_{MENSAJES['fuente_datos']}_")
         marcar_enviado("visor_arg_3")
 
     # 9 · VISOR BCRA 17:30
     if es_hora_exacta(HORARIOS["visor_bcra"]) and not ya_se_envio("visor_bcra"):
         path = generar_Visor_BCRA()
-        tg_foto(path, f"🏦 *{MENSAJES['visor_bcra']}* — {ts} AR")
+        tg_foto(path, f"*{MENSAJES['visor_bcra_tg']}* — {ts} AR")
         marcar_enviado("visor_bcra")
 
     print(f"✅ Completado — {hhmm()}")
