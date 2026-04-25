@@ -17,11 +17,14 @@
 # ───────────────────────────────────────────────────────────────────
 
 APIS = {
-    "ADR":       "https://data912.com/live/usa_adrs",
-    "STOCKS":    "https://data912.com/live/arg_stocks",
-    "CEDEARS":   "https://data912.com/live/arg_cedears",
-    "FERIADOS":  "https://api.argentinadatos.com/v1/feriados/2026",
-    "RIESGO_PAIS": "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais",
+    "ADR":           "https://data912.com/live/usa_adrs",
+    "STOCKS":        "https://data912.com/live/arg_stocks",
+    "CEDEARS":       "https://data912.com/live/arg_cedears",
+    "FERIADOS":      "https://api.argentinadatos.com/v1/feriados/2026",
+    "RIESGO_PAIS":   "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais",
+    # ── Visor BCRA — requiere token (GitHub Secret: BCRA_TOKEN) ───
+    # Registro gratuito en: estadisticasbcra.com/api/registracion
+    "BCRA_BASE":     "https://api.estadisticasbcra.com",
 }
 
 
@@ -163,21 +166,32 @@ CAPTURAS_WEB = {
 # ───────────────────────────────────────────────────────────────────
 # 4. VISOR BCRA — Variables del Banco Central
 # ───────────────────────────────────────────────────────────────────
-# Cada ítem: (ID_bcra_wrapper, "Etiqueta", columna "T0"/"T2", es_calculado)
-# IDs: 1=Reservas, 2=BADLAR, 4=USD Ofic, 6=Base Mon,
-#      10=CER, 11=Depositos, 12=Prestamos, 13=TAMAR
+# 4. VISOR BCRA — Fuente: api.estadisticasbcra.com
+# ───────────────────────────────────────────────────────────────────
+# Se migró de api.bcra.gob.ar a api.estadisticasbcra.com porque:
+#   · api.bcra.gob.ar tiene problemas SSL en GitHub Actions
+#   · api.bcra.gob.ar v4.0 cambió IDs y estructura sin previo aviso
+#   · api.estadisticasbcra.com funciona sin SSL issues, sin tokens,
+#     y ya tiene los ratios calculados como endpoints directos
+#
+# REQIERE TOKEN: registrarse en estadisticasbcra.com/api/registracion
+# con un email. El token se guarda como Secret en GitHub:
+#   Settings → Secrets → New → nombre: BCRA_TOKEN
+#
+# Cada ítem: ("endpoint", "Etiqueta", columna "T0"/"T2", formato)
+# Formatos: "bps", "pesos_m", "pct", "ratio", "usd", "num"
 
 VISOR_BCRA_ITEMS = [
-    (None,        "RIESGO PAIS",    "T0", False),  # argentinadatos.com
-    (4,           "USD A3500",      "T0", False),
-    (10,          "CER",            "T0", False),
-    (2,           "BADLAR",         "T0", False),
-    (13,          "TAMAR",          "T0", False),
-    (1,           "RESERVAS INTER", "T2", False),
-    (6,           "BASE MONETARIA", "T2", False),
-    ("6/1",       "B.MON / R.IN",   "T2", True),
-    ("6/4",       "B.MON / USD.OF", "T2", True),
-    ("12/11*100", "PREST / DEPOS",  "T2", True),
+    # endpoint                  Etiqueta          Col   Formato
+    ("riesgo_pais",            "RIESGO PAIS",    "T0", "bps"),    # argentinadatos.com (sin token)
+    ("usd_of",                 "USD OFICIAL",    "T0", "usd"),    # cotización USD oficial
+    ("cer",                    "CER",            "T0", "num6"),   # coeficiente CER (6 decimales)
+    ("tasa_badlar",            "BADLAR",         "T0", "pct"),    # tasa BADLAR TNA
+    ("reservas",               "RESERVAS INTER", "T2", "usd_m"), # reservas en millones USD
+    ("base",                   "BASE MONETARIA", "T2", "pesos_m"),# base mon. en millones $
+    ("base_div_res",           "B.MON / R.IN",   "T2", "ratio"), # base/reservas (ya calculado)
+    ("base_usd_of",            "B.MON / USD.OF", "T2", "pesos_m"),# base/USD oficial
+    ("porc_prestamos_vs_depositos", "PREST/DEPOS","T2", "pct"),  # % préstamos vs depósitos
 ]
 
 
