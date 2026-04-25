@@ -443,59 +443,46 @@ def generar_Visor_ARG() -> str:
 # SECCIÓN 6 — VISOR BCRA (Tarjeta PNG con Pillow)
 # ═══════════════════════════════════════════════════════════════════
 
-def _bcra_variable(var_id: int) -> float | None:
+def _bcra_estadisticas(endpoint: str) -> float | None:
     """
-    Obtiene el valor más reciente de una variable BCRA.
-    Endpoint oficial: GET https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{id}
+    Consulta api.estadisticasbcra.com con token Bearer.
+    Respuesta: lista de [{d: "YYYY-MM-DD", v: numero}, ...]
+    Devuelve el último valor disponible.
 
-    Intenta primero con verify=True (usando el certificado Let's Encrypt
-    instalado en el .yml). Si falla por SSL, reintenta con verify=False.
-    Respuesta JSON: { "results": [ {"fecha": "YYYY-MM-DD", "valor": X}, ... ] }
+    Token guardado como GitHub Secret BCRA_TOKEN.
+    Sin token → devuelve None (la tarjeta mostrará "—").
     """
-    from datetime import timedelta
-    import urllib3
-
-    hoy   = hora_ar().strftime("%Y-%m-%d")
-    desde = (hora_ar() - timedelta(days=15)).strftime("%Y-%m-%d")
-    url   = f"https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{var_id}"
-    params = {"desde": desde, "hasta": hoy}
-
-    for verify in (True, False):
-        try:
-            if not verify:
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            r = requests.get(url, params=params, verify=verify, timeout=15)
-            r.raise_for_status()
-            resultados = r.json().get("results", [])
-            if resultados:
-                valor = float(resultados[-1]["valor"])
-                print(f"    ✅ ID {var_id}: {valor} (verify={verify})")
-                return valor
-            else:
-                print(f"    ⚠️  ID {var_id}: sin datos en {desde} → {hoy}")
-                return None
-        except Exception as e:
-            if verify:
-                print(f"    🔄 ID {var_id}: SSL con certs → reintentando sin verify...")
-            else:
-                print(f"    ⚠️  bcra ID {var_id}: {e}")
+    BCRA_TOKEN = os.getenv("BCRA_TOKEN", "")
+    if not BCRA_TOKEN:
+        print(f"    ⚠️  {endpoint}: BCRA_TOKEN no configurado")
+        return None
+    url = f"{APIS['BCRA_BASE']}/{endpoint}"
+    try:
+        r = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {BCRA_TOKEN}"},
+            timeout=12,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, list) and data:
+            valor = float(data[-1]["v"])
+            print(f"    ✅ {endpoint}: {valor}")
+            return valor
+        print(f"    ⚠️  {endpoint}: respuesta vacía")
+    except Exception as e:
+        print(f"    ⚠️  {endpoint}: {e}")
     return None
 
 
 def _riesgo_pais() -> float | None:
-    """
-    Obtiene el Riesgo País desde argentinadatos.com.
-    Endpoint: /v1/finanzas/indices/riesgo-pais
-    Devuelve lista de {fecha, valor} — tomamos el último.
-    """
+    """Riesgo País desde argentinadatos.com — sin token, siempre funciona."""
     try:
-        r    = requests.get(APIS["RIESGO_PAIS"], timeout=8)
+        r = requests.get(APIS["RIESGO_PAIS"], timeout=8)
         r.raise_for_status()
         data = r.json()
         if isinstance(data, list) and data:
-            # La lista viene ordenada por fecha ascendente
-            ultimo = data[-1]
-            valor  = float(ultimo.get("valor", ultimo.get("value", 0)))
+            valor = float(data[-1].get("valor", 0))
             print(f"    ✅ Riesgo País: {valor} bps")
             return valor
     except Exception as e:
@@ -503,78 +490,56 @@ def _riesgo_pais() -> float | None:
     return None
 
 
-def _formatear_bcra(var_id, valor: float) -> str:
-    """
-    Formatea el valor BCRA según el tipo de variable para mostrarlo
-    de forma legible en la tarjeta.
-    """
+def _formatear_bcra(fmt: str, valor) -> str:
+    """Formatea el valor según el tipo definido en config.VISOR_BCRA_ITEMS."""
     if valor is None:
         return "—"
-    if var_id is None:                   # Riesgo País
-        return f"{int(valor):,} bps"
-    if var_id in (1, 6):                 # Reservas / Base Mon. → en millones
-        return f"$ {valor / 1_000_000:,.0f} M"
-    if var_id in (2, 13):                # BADLAR / TAMAR → TNA %
-        return f"{valor:.2f} % TNA"
-    if var_id == 10:                     # CER → coeficiente con 6 decimales
-        return f"{valor:.6f}"
-    if var_id == 4:                      # USD Oficial → $ con 2 decimales
-        return f"$ {valor:,.2f}"
-    if var_id == "6/1":                  # B.MON / R.IN → ratio
-        return f"{valor:,.2f}"
-    if var_id == "6/4":                  # B.MON / USD.OF → millones de USD
-        return f"$ {valor / 1_000_000:,.0f} M"
-    if var_id == "12/11*100":            # PREST / DEPOS → porcentaje
-        return f"{valor:.1f} %"
-    return f"{valor:,.4f}"
+    try:
+        v = float(valor)
+        if fmt == "bps":     return f"{int(v):,} bps"
+        if fmt == "usd":     return f"$ {v:,.4f}"
+        if fmt == "usd_m":   return f"u$s {v:,.0f} M"
+        if fmt == "pesos_m": return f"$ {v/1_000:,.0f} M"
+        if fmt == "pct":     return f"{v:.2f} %"
+        if fmt == "ratio":   return f"{v:,.2f}"
+        if fmt == "num6":    return f"{v:.6f}"
+        return f"{v:,.4f}"
+    except Exception:
+        return "—"
 
 
 def generar_Visor_BCRA() -> str:
     """
-    Genera la tarjeta PNG del Visor BCRA con Pillow.
+    Genera la tarjeta PNG del Visor BCRA.
 
-    Fuentes de datos:
-      · API BCRA v4.0 directa con requests verify=False → IDs 1,2,4,6,10,11,12,13
-      · argentinadatos.com → Riesgo País
+    Fuentes:
+      · api.estadisticasbcra.com + token BCRA_TOKEN → indicadores BCRA
+      · api.argentinadatos.com                      → Riesgo País (sin token)
+
+    BCRA_TOKEN: registrarse gratis en estadisticasbcra.com/api/registracion
+    Guardar el token en GitHub → Settings → Secrets → BCRA_TOKEN
     """
-    D    = DISEÑO_VISOR_BCRA
-    hoy  = hora_ar().strftime("%d/%m/%Y")
-    ts   = hhmm()
+    D   = DISEÑO_VISOR_BCRA
+    hoy = hora_ar().strftime("%d/%m/%Y")
+    ts  = hhmm()
 
     print(f"\n🏦 Generando Visor BCRA ({ts})...")
 
-    # ── 1. Recolectar datos via API BCRA directa ──────────────────
-    IDS_DIRECTOS = [1, 2, 4, 6, 10, 11, 12, 13]
+    # ── Recolectar datos ──────────────────────────────────────────
     raw = {}
-    for vid in IDS_DIRECTOS:
-        print(f"  → Consultando BCRA ID {vid}...")
-        raw[vid] = _bcra_variable(vid)
+    for (endpoint, etiqueta, col, fmt) in VISOR_BCRA_ITEMS:
+        print(f"  → {etiqueta}...")
+        if endpoint == "riesgo_pais":
+            raw[endpoint] = _riesgo_pais()
+        else:
+            raw[endpoint] = _bcra_estadisticas(endpoint)
 
-    print(f"  → Consultando Riesgo País (argentinadatos.com)...")
-    raw["rp"] = _riesgo_pais()
-
-    # ── 2. Calcular ratios ────────────────────────────────────────
-    def v(k):
-        return raw.get(k)
-
-    ratios = {
-        "6/1":       (v(6) / v(1))         if v(6) and v(1)  else None,
-        "6/4":       (v(6) / v(4))         if v(6) and v(4)  else None,
-        "12/11*100": (v(12) / v(11) * 100) if v(12) and v(11) else None,
-    }
-
-    def get_valor(var_id):
-        """Resuelve el valor de un ítem (directo, ratio o riesgo país)."""
-        if var_id is None:           return raw.get("rp")
-        if isinstance(var_id, str):  return ratios.get(var_id)
-        return raw.get(var_id)
-
-    # ── 3. Dibujar tarjeta con Pillow ────────────────────────────
+    # ── Dibujar tarjeta ───────────────────────────────────────────
     pad      = D["padding"]
     rh       = D["row_height"]
     n_items  = len(VISOR_BCRA_ITEMS)
     header_h = 80
-    colhdr_h = 36       # altura fila de cabeceras de columna
+    colhdr_h = 36
     canvas_w = D["width"]
     canvas_h = header_h + colhdr_h + n_items * rh + pad
 
@@ -585,56 +550,41 @@ def generar_Visor_BCRA() -> str:
     draw.rectangle([0, 0, canvas_w - 1, canvas_h - 1],
                    outline=D["border"], width=3)
 
-    # ── Header azul ───────────────────────────────────────────────
+    # Header
     draw.rectangle([0, 0, canvas_w, header_h], fill=D["header_bg"])
     fh1 = _get_font(D["font_header"], bold=True)
     fh2 = _get_font(D["font_sub"],    bold=False)
-    draw.text((pad, 14), "VISOR BCRA",               font=fh1, fill=D["header_text"])
-    draw.text((pad, 48), f"Fuente: BCRA  —  {hoy}",  font=fh2, fill="#bfdbfe")
+    draw.text((pad, 14), MENSAJES["visor_bcra_titulo"], font=fh1, fill=D["header_text"])
+    draw.text((pad, 48), f"Fuente: BCRA  —  {hoy}",    font=fh2, fill="#bfdbfe")
 
-    # ── Cabeceras de columnas ─────────────────────────────────────
-    # Posiciones X de cada columna (ajustadas a 700px de ancho)
-    x_label = pad           # columna INDICADOR
-    x_t0    = 340           # columna T+0 (Hoy)
-    x_t2    = 540           # columna T-2 (48hs)
-    x_div1  = 330           # línea vertical izquierda
-    x_div2  = 530           # línea vertical derecha
-
-    col_y = header_h + 6
-    fch   = _get_font(D["font_label"], bold=True)
-    draw.text((x_label, col_y), "INDICADOR",   font=fch, fill=D["col_header"])
-    draw.text((x_t0,    col_y), "T+0 (Hoy)",   font=fch, fill=D["col_header"])
-    draw.text((x_t2,    col_y), "T-2 (48hs)",  font=fch, fill=D["col_header"])
+    # Cabeceras de columna
+    x_label = pad;  x_t0 = 340;  x_t2 = 540
+    x_div1  = 330;  x_div2 = 530
+    col_y   = header_h + 6
+    fch = _get_font(D["font_label"], bold=True)
+    draw.text((x_label, col_y), "INDICADOR",  font=fch, fill=D["col_header"])
+    draw.text((x_t0,    col_y), "T+0 (Hoy)",  font=fch, fill=D["col_header"])
+    draw.text((x_t2,    col_y), "T-2 (48hs)", font=fch, fill=D["col_header"])
 
     sep_y = header_h + colhdr_h
     draw.line([(pad, sep_y), (canvas_w - pad, sep_y)], fill=D["border"], width=2)
 
-    # ── Filas de datos ────────────────────────────────────────────
     fl = _get_font(D["font_label"], bold=False)
     fv = _get_font(D["font_value"], bold=True)
 
-    for idx, (var_id, etiqueta, col, _) in enumerate(VISOR_BCRA_ITEMS):
+    for idx, (endpoint, etiqueta, col, fmt) in enumerate(VISOR_BCRA_ITEMS):
         y    = sep_y + idx * rh
         fill = "#dbeafe" if idx % 2 == 0 else "#e0f2fe"
         draw.rectangle([1, y, canvas_w - 1, y + rh - 1], fill=fill)
-
-        # Etiqueta del indicador
         draw.text((x_label, y + 11), etiqueta, font=fl, fill=D["label_color"])
-
-        # Líneas verticales separadoras
         draw.line([(x_div1, y), (x_div1, y + rh)], fill=D["divider"], width=1)
         draw.line([(x_div2, y), (x_div2, y + rh)], fill=D["divider"], width=1)
-
-        # Valor formateado
-        valor     = get_valor(var_id)
-        valor_str = _formatear_bcra(var_id, valor)
-        color_val = D["value_t0"] if col == "T0" else D["value_t2"]
+        valor_str = _formatear_bcra(fmt, raw.get(endpoint))
         x_val     = x_t0 if col == "T0" else x_t2
+        color_val = D["value_t0"] if col == "T0" else D["value_t2"]
         draw.text((x_val, y + 11), valor_str, font=fv, fill=color_val)
 
-    # Línea final
-    y_final = sep_y + n_items * rh
-    draw.line([(pad, y_final), (canvas_w - pad, y_final)],
+    draw.line([(pad, sep_y + n_items * rh), (canvas_w - pad, sep_y + n_items * rh)],
               fill=D["border"], width=2)
 
     path = ARCHIVOS["visor_bcra_img"]
