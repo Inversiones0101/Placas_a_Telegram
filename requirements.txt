@@ -3,5 +3,5 @@ pandas
 pillow
 pytz
 playwright
-bcraapi
 urllib3
+bcra-connector
