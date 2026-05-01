@@ -22,9 +22,9 @@ APIS = {
     "CEDEARS":       "https://data912.com/live/arg_cedears",
     "FERIADOS":      "https://api.argentinadatos.com/v1/feriados/2026",
     "RIESGO_PAIS":   "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais",
-    # ── Visor BCRA — requiere token (GitHub Secret: BCRA_TOKEN) ───
-    # Registro gratuito en: estadisticasbcra.com/api/registracion
-    "BCRA_BASE":     "https://api.estadisticasbcra.com",
+    # ── Visor BCRA — API oficial v4.0 via bcra-connector ──────────
+    # Sin token. pip install bcra-connector. verify_ssl=False nativo.
+    "BCRA_BASE":     "https://api.bcra.gob.ar",
 }
 
 
@@ -164,34 +164,39 @@ CAPTURAS_WEB = {
 }
 
 # ───────────────────────────────────────────────────────────────────
-# 4. VISOR BCRA — Variables del Banco Central
+# 4. # ───────────────────────────────────────────────────────────────────
+# 4. VISOR BCRA — API oficial BCRA v4.0 via bcra-connector
 # ───────────────────────────────────────────────────────────────────
-# 4. VISOR BCRA — Fuente: api.estadisticasbcra.com
-# ───────────────────────────────────────────────────────────────────
-# Se migró de api.bcra.gob.ar a api.estadisticasbcra.com porque:
-#   · api.bcra.gob.ar tiene problemas SSL en GitHub Actions
-#   · api.bcra.gob.ar v4.0 cambió IDs y estructura sin previo aviso
-#   · api.estadisticasbcra.com funciona sin SSL issues, sin tokens,
-#     y ya tiene los ratios calculados como endpoints directos
+# Librería: bcra-connector (pip install bcra-connector)
+#   → verify_ssl=False nativo, sin SSL issues en GitHub Actions
+#   → sin token, sin registro, sin límite de consultas
+#   → datos oficiales y actualizados del BCRA
 #
-# REQIERE TOKEN: registrarse en estadisticasbcra.com/api/registracion
-# con un email. El token se guarda como Secret en GitHub:
-#   Settings → Secrets → New → nombre: BCRA_TOKEN
+# IDs v4.0 según documentación oficial BCRA:
+#   1  → Reservas Internacionales (millones USD)   T-2
+#   4  → USD Oficial A3500                         T+0
+#   6  → Base Monetaria (millones $)               T-2
+#   7  → Tasa BADLAR TNA (%)                       T+0
+#   15 → CER                                       T+0
+#   34 → Tasa Política Monetaria TNA (%)           T+0
 #
-# Cada ítem: ("endpoint", "Etiqueta", columna "T0"/"T2", formato)
-# Formatos: "bps", "pesos_m", "pct", "ratio", "usd", "num"
+# id_var = None        → Riesgo País (argentinadatos.com)
+# id_var = int         → variable directa bcra-connector
+# id_var = "calc:X/Y"  → ratio calculado entre ID X e ID Y
+#
+# Formatos: "bps", "usd4", "usd_m", "pesos_m", "pct2", "num6", "ratio"
 
 VISOR_BCRA_ITEMS = [
-    # endpoint                  Etiqueta          Col   Formato
-    ("riesgo_pais",            "RIESGO PAIS",    "T0", "bps"),    # argentinadatos.com (sin token)
-    ("usd_of",                 "USD OFICIAL",    "T0", "usd"),    # cotización USD oficial
-    ("cer",                    "CER",            "T0", "num6"),   # coeficiente CER (6 decimales)
-    ("tasa_badlar",            "BADLAR",         "T0", "pct"),    # tasa BADLAR TNA
-    ("reservas",               "RESERVAS INTER", "T2", "usd_m"), # reservas en millones USD
-    ("base",                   "BASE MONETARIA", "T2", "pesos_m"),# base mon. en millones $
-    ("base_div_res",           "B.MON / R.IN",   "T2", "ratio"), # base/reservas (ya calculado)
-    ("base_usd_of",            "B.MON / USD.OF", "T2", "pesos_m"),# base/USD oficial
-    ("porc_prestamos_vs_depositos", "PREST/DEPOS","T2", "pct"),  # % préstamos vs depósitos
+    # id_var        Etiqueta           Col   Formato
+    (None,          "RIESGO PAIS",    "T0", "bps"),    # argentinadatos.com
+    (4,             "USD A3500",      "T0", "usd4"),   # USD Oficial Mayorista
+    (15,            "CER",            "T0", "num6"),   # Coef. Estab. Referencia
+    (7,             "BADLAR",         "T0", "pct2"),   # Tasa BADLAR TNA
+    (34,            "TASA POL.MON.",  "T0", "pct2"),   # Tasa Política Monetaria
+    (1,             "RESERVAS INTER", "T2", "usd_m"),  # Millones USD (T-2)
+    (6,             "BASE MONETARIA", "T2", "pesos_m"),# Millones $ (T-2)
+    ("calc:6/1",    "B.MON / R.IN",   "T2", "ratio"),  # Base / Reservas
+    ("calc:6/4",    "B.MON / USD.OF", "T2", "pesos_m"),# Base / USD Oficial
 ]
 
 
