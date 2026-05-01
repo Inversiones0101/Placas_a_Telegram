@@ -443,36 +443,19 @@ def generar_Visor_ARG() -> str:
 # SECCIÓN 6 — VISOR BCRA (Tarjeta PNG con Pillow)
 # ═══════════════════════════════════════════════════════════════════
 
-def _bcra_estadisticas(endpoint: str) -> float | None:
+def _bcra_variable(var_id: int, todas: dict) -> float | None:
     """
-    Consulta api.estadisticasbcra.com con token Bearer.
-    Respuesta: lista de [{d: "YYYY-MM-DD", v: numero}, ...]
-    Devuelve el último valor disponible.
-
-    Token guardado como GitHub Secret BCRA_TOKEN.
-    Sin token → devuelve None (la tarjeta mostrará "—").
+    Extrae el valor de una variable BCRA del dict precargado.
+    El dict se construye una sola vez en generar_Visor_BCRA()
+    con una única llamada a bcra-connector → mínimo consumo de red.
     """
-    BCRA_TOKEN = os.getenv("BCRA_TOKEN", "")
-    if not BCRA_TOKEN:
-        print(f"    ⚠️  {endpoint}: BCRA_TOKEN no configurado")
+    item = todas.get(var_id)
+    if item is None:
         return None
-    url = f"{APIS['BCRA_BASE']}/{endpoint}"
     try:
-        r = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {BCRA_TOKEN}"},
-            timeout=12,
-        )
-        r.raise_for_status()
-        data = r.json()
-        if isinstance(data, list) and data:
-            valor = float(data[-1]["v"])
-            print(f"    ✅ {endpoint}: {valor}")
-            return valor
-        print(f"    ⚠️  {endpoint}: respuesta vacía")
-    except Exception as e:
-        print(f"    ⚠️  {endpoint}: {e}")
-    return None
+        return float(item.ultValorInformado)
+    except Exception:
+        return None
 
 
 def _riesgo_pais() -> float | None:
@@ -497,10 +480,10 @@ def _formatear_bcra(fmt: str, valor) -> str:
     try:
         v = float(valor)
         if fmt == "bps":     return f"{int(v):,} bps"
-        if fmt == "usd":     return f"$ {v:,.4f}"
+        if fmt == "usd4":    return f"$ {v:,.4f}"
         if fmt == "usd_m":   return f"u$s {v:,.0f} M"
         if fmt == "pesos_m": return f"$ {v/1_000:,.0f} M"
-        if fmt == "pct":     return f"{v:.2f} %"
+        if fmt == "pct2":    return f"{v:.2f} %"
         if fmt == "ratio":   return f"{v:,.2f}"
         if fmt == "num6":    return f"{v:.6f}"
         return f"{v:,.4f}"
@@ -513,11 +496,12 @@ def generar_Visor_BCRA() -> str:
     Genera la tarjeta PNG del Visor BCRA.
 
     Fuentes:
-      · api.estadisticasbcra.com + token BCRA_TOKEN → indicadores BCRA
-      · api.argentinadatos.com                      → Riesgo País (sin token)
+      · api.bcra.gob.ar v4.0 via bcra-connector → variables monetarias
+        (verify_ssl=False nativo, sin token, sin límite de consultas)
+      · api.argentinadatos.com → Riesgo País (sin token, siempre funciona)
 
-    BCRA_TOKEN: registrarse gratis en estadisticasbcra.com/api/registracion
-    Guardar el token en GitHub → Settings → Secrets → BCRA_TOKEN
+    Una sola llamada a get_principales_variables() descarga todas las
+    variables de una vez → máxima eficiencia de red.
     """
     D   = DISEÑO_VISOR_BCRA
     hoy = hora_ar().strftime("%d/%m/%Y")
@@ -525,16 +509,37 @@ def generar_Visor_BCRA() -> str:
 
     print(f"\n🏦 Generando Visor BCRA ({ts})...")
 
-    # ── Recolectar datos ──────────────────────────────────────────
-    raw = {}
-    for (endpoint, etiqueta, col, fmt) in VISOR_BCRA_ITEMS:
-        print(f"  → {etiqueta}...")
-        if endpoint == "riesgo_pais":
-            raw[endpoint] = _riesgo_pais()
-        else:
-            raw[endpoint] = _bcra_estadisticas(endpoint)
+    # ── 1. Descargar TODAS las variables BCRA de una sola vez ─────
+    todas = {}   # dict {id_variable: objeto_variable}
+    try:
+        from bcra_connector import BCRAConnector
+        conn = BCRAConnector(verify_ssl=False)
+        variables = conn.get_principales_variables()
+        todas = {v.idVariable: v for v in variables}
+        print(f"  ✅ bcra-connector: {len(todas)} variables descargadas")
+    except Exception as e:
+        print(f"  ⚠️  bcra-connector: {e}")
 
-    # ── Dibujar tarjeta ───────────────────────────────────────────
+    # ── 2. Riesgo País (fuente separada) ──────────────────────────
+    rp = _riesgo_pais()
+
+    # ── 3. Recolectar valores para cada ítem ─────────────────────
+    raw = {}
+    for (var_id, etiqueta, col, fmt) in VISOR_BCRA_ITEMS:
+        if var_id is None:
+            raw[var_id] = rp
+        elif isinstance(var_id, str) and var_id.startswith("calc:"):
+            # Ratio calculado: "calc:6/1" → ID6 / ID1
+            ids = var_id[5:].split("/")
+            v_num = _bcra_variable(int(ids[0]), todas)
+            v_den = _bcra_variable(int(ids[1]), todas)
+            raw[var_id] = (v_num / v_den) if (v_num and v_den) else None
+        else:
+            raw[var_id] = _bcra_variable(var_id, todas)
+        val = raw[var_id]
+        print(f"  → {etiqueta}: {_formatear_bcra(fmt, val)}")
+
+    # ── 4. Dibujar tarjeta Pillow ─────────────────────────────────
     pad      = D["padding"]
     rh       = D["row_height"]
     n_items  = len(VISOR_BCRA_ITEMS)
@@ -546,7 +551,6 @@ def generar_Visor_BCRA() -> str:
     img  = Image.new("RGB", (canvas_w, canvas_h), D["bg"])
     draw = ImageDraw.Draw(img)
 
-    # Borde exterior
     draw.rectangle([0, 0, canvas_w - 1, canvas_h - 1],
                    outline=D["border"], width=3)
 
@@ -572,14 +576,14 @@ def generar_Visor_BCRA() -> str:
     fl = _get_font(D["font_label"], bold=False)
     fv = _get_font(D["font_value"], bold=True)
 
-    for idx, (endpoint, etiqueta, col, fmt) in enumerate(VISOR_BCRA_ITEMS):
+    for idx, (var_id, etiqueta, col, fmt) in enumerate(VISOR_BCRA_ITEMS):
         y    = sep_y + idx * rh
         fill = "#dbeafe" if idx % 2 == 0 else "#e0f2fe"
         draw.rectangle([1, y, canvas_w - 1, y + rh - 1], fill=fill)
         draw.text((x_label, y + 11), etiqueta, font=fl, fill=D["label_color"])
         draw.line([(x_div1, y), (x_div1, y + rh)], fill=D["divider"], width=1)
         draw.line([(x_div2, y), (x_div2, y + rh)], fill=D["divider"], width=1)
-        valor_str = _formatear_bcra(fmt, raw.get(endpoint))
+        valor_str = _formatear_bcra(fmt, raw.get(var_id))
         x_val     = x_t0 if col == "T0" else x_t2
         color_val = D["value_t0"] if col == "T0" else D["value_t2"]
         draw.text((x_val, y + 11), valor_str, font=fv, fill=color_val)
@@ -591,78 +595,3 @@ def generar_Visor_BCRA() -> str:
     img.save(path, "PNG", optimize=True)
     print(f"✅ Visor BCRA guardado: {path}")
     return path
-
-
-# ═══════════════════════════════════════════════════════════════════
-# SECCIÓN 7 — LÓGICA PRINCIPAL (RELOJ INTELIGENTE)
-# ═══════════════════════════════════════════════════════════════════
-
-def main():
-    ahora = hora_ar()
-    ts    = hhmm(ahora)
-
-    print(f"\n{'═'*54}")
-    print(f"  Placas_a_Telegram  ·  {ahora.strftime('%Y-%m-%d  %H:%M:%S')} AR")
-    print(f"{'═'*54}")
-
-    # 1 · Día hábil
-    if not es_dia_habil():
-        sys.exit(0)
-
-    # 2 · Fuera de horario (11:00 — 18:00)
-    if ts < "11:00" or ts > "18:05":
-        print(f"⏰ Fuera de horario ({ts}).")
-        sys.exit(0)
-
-    limpiar_estado_viejo()
-
-    # ── Acciones del día ───────────────────────────────────────────
-
-    # 3 · IMAGEN WEB 12:00 — Merval Abierto
-    if es_hora_exacta(HORARIOS["imagen_1"]) and not ya_se_envio("imagen_1"):
-        generar_Imagen_ARG(estado="Abierto")
-        marcar_enviado("imagen_1")
-
-    # 4 · VISOR ARG 13:00
-    if es_hora_exacta(HORARIOS["visor_arg_1"]) and not ya_se_envio("visor_arg_1"):
-        path = generar_Visor_ARG()
-        tg_foto(path, f"*{MENSAJES['visor_arg_tg']}* — {ts} AR\n_{MENSAJES['fuente_datos']}_")
-        marcar_enviado("visor_arg_1")
-
-    # 5 · IMAGEN WEB 14:00 — Merval Abierto
-    if es_hora_exacta(HORARIOS["imagen_2"]) and not ya_se_envio("imagen_2"):
-        generar_Imagen_ARG(estado="Abierto")
-        marcar_enviado("imagen_2")
-
-    # 6 · VISOR ARG 15:00
-    if es_hora_exacta(HORARIOS["visor_arg_2"]) and not ya_se_envio("visor_arg_2"):
-        path = generar_Visor_ARG()
-        tg_foto(path, f"*{MENSAJES['visor_arg_tg']}* — {ts} AR\n_{MENSAJES['fuente_datos']}_")
-        marcar_enviado("visor_arg_2")
-
-    # 7 · IMAGEN WEB 16:00 — Merval Abierto
-    if es_hora_exacta(HORARIOS["imagen_3"]) and not ya_se_envio("imagen_3"):
-        generar_Imagen_ARG(estado="Abierto")
-        marcar_enviado("imagen_3")
-
-    # 8 · IMAGEN WEB 17:00 + VISOR ARG — Merval Cerrado
-    if es_hora_exacta(HORARIOS["imagen_cierre"]) and not ya_se_envio("imagen_cierre"):
-        generar_Imagen_ARG(estado="Cerrado")
-        marcar_enviado("imagen_cierre")
-
-    if es_hora_exacta(HORARIOS["visor_arg_3"]) and not ya_se_envio("visor_arg_3"):
-        path = generar_Visor_ARG()
-        tg_foto(path, f"*{MENSAJES['visor_arg_tg']}* — Cierre {ts} AR\n_{MENSAJES['fuente_datos']}_")
-        marcar_enviado("visor_arg_3")
-
-    # 9 · VISOR BCRA 17:30
-    if es_hora_exacta(HORARIOS["visor_bcra"]) and not ya_se_envio("visor_bcra"):
-        path = generar_Visor_BCRA()
-        tg_foto(path, f"*{MENSAJES['visor_bcra_tg']}* — {ts} AR")
-        marcar_enviado("visor_bcra")
-
-    print(f"✅ Completado — {hhmm()}")
-
-
-if __name__ == "__main__":
-    main()
