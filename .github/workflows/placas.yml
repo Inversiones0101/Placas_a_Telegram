@@ -26,7 +26,7 @@ permissions:
 jobs:
   placas:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10   # Playwright(~40s) + bcra-connector + Visor ARG/BCRA
 
     steps:
 
@@ -54,7 +54,6 @@ jobs:
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          BCRA_TOKEN:       ${{ secrets.BCRA_TOKEN }}
           TZ: "America/Argentina/Buenos_Aires"
         run: python main.py
 
