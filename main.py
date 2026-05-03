@@ -157,14 +157,14 @@ def _get_font(size: int, bold: bool = False):
 
 def generar_Imagen_ARG(estado: str = "Abierto"):
     """
-    Visita cada URL activa en CAPTURAS_WEB con Playwright.
-    Captura el elemento CSS indicado, aplica zoom con Pillow.
+    Visita cada URL activa en CAPTURAS_WEB con Playwright,
+    captura el elemento CSS indicado y envía cada imagen a Telegram.
 
-    Lógica de combinación (campo 'combinar_con'):
-      - Si la captura A tiene combinar_con="B", se espera a tener
-        también la captura B y se pegan verticalmente en una sola
-        imagen antes de enviar.
-      - Si combinar_con es None, se envía individualmente.
+    Caption dinámico: si la captura tiene 'ticker_api' definido, el bot
+    busca el precio en APIS["BONOS"] y lo inyecta en el texto del caption.
+    Ejemplo: "📈 AL30 Intradiario: $91,320.00 (+1.01%)"
+
+    Una sola consulta a la API de bonos para todas las capturas → eficiente.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -183,14 +183,27 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
 
     print(f"📸 Capturas web ({len(activas)}) — {ts}")
 
-    # Diccionario para almacenar imágenes capturadas {nombre: PIL.Image}
+    # ── Precargar precios de bonos (1 sola request para todas las capturas) ──
+    datos_bonos = {}
+    tickers_necesarios = {cfg["ticker_api"] for cfg in activas.values()
+                          if cfg.get("ticker_api")}
+    if tickers_necesarios:
+        try:
+            r = requests.get(APIS["BONOS"], timeout=10)
+            r.raise_for_status()
+            datos_bonos = {item["symbol"]: item for item in r.json()}
+            print(f"  💹 Precios cargados: {', '.join(tickers_necesarios)}")
+        except Exception as e:
+            print(f"  ⚠️  No se pudieron cargar precios de bonos: {e}")
+
+    # ── Captura de pantalla con Playwright ───────────────────────────
     imgs_capturadas: dict[str, Image.Image] = {}
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         ctx     = browser.new_context(
             viewport={"width": 1280, "height": 900},
-            device_scale_factor=2,   # retina → más resolución
+            device_scale_factor=2,
         )
         page = ctx.new_page()
 
@@ -208,7 +221,7 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
                 if cfg.get("delay_ms", 0) > 0:
                     page.wait_for_timeout(cfg["delay_ms"])
 
-                elemento = page.query_selector(cfg["crop_selector"])
+                elemento  = page.query_selector(cfg["crop_selector"])
                 img_bytes = elemento.screenshot() if elemento else page.screenshot(full_page=False)
 
                 if not elemento:
@@ -229,15 +242,7 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
 
         browser.close()
 
-    # ── Enviar cada imagen individualmente ────────────────────────
-    # Caption del caption_key mapea cada captura a su texto en MENSAJES
-    caption_keys = {
-        "CAUCION_1D_MAE": "caucion_caption",
-        "USMEP_MAE":      "usmep_caption",
-        "AL30_IOL":       "al30_caption",
-        "GD30_IOL":       "gd30_caption",
-    }
-
+    # ── Enviar cada imagen con su caption ────────────────────────────
     for nombre, cfg in activas.items():
         if nombre not in imgs_capturadas:
             print(f"    ⚠️  {nombre}: no capturado, omitiendo envío.")
@@ -246,16 +251,32 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
         tmp_path = f"captura_{nombre.lower()}.png"
         imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
 
-        # Buscar el texto de caption en MENSAJES, fallback al campo caption del config
-        clave_msg = caption_keys.get(nombre)
-        texto_cap = MENSAJES.get(clave_msg, cfg.get("caption", nombre))
+        # Texto base desde MENSAJES usando caption_key (o caption legacy)
+        caption_key = cfg.get("caption_key")
+        texto_base  = MENSAJES.get(caption_key, cfg.get("caption", nombre))
 
-        caption = (
-            f"{emoji} *{texto_estado}* — {ts} AR\n"
-            f"{texto_cap}"
-        )
+        # Inyección dinámica de precio si hay ticker_api configurado
+        ticker = cfg.get("ticker_api")
+        if ticker and ticker in datos_bonos:
+            d          = datos_bonos[ticker]
+            precio_str = f"{d['c']:,.2f}"
+            var_str    = f"{d['pct_change']:+.2f}"
+            # Reemplazo manual → evita errores con llaves literales en .format()
+            texto_base = (texto_base
+                          .replace("{precio}", precio_str)
+                          .replace("{variacion}", var_str))
+            print(f"    💹 {ticker}: ${precio_str} ({var_str}%)")
+        elif ticker:
+            # Ticker configurado pero sin dato → remover placeholders
+            texto_base = (texto_base
+                          .replace(": ${precio} ({variacion}%)", "")
+                          .replace("${precio}", "—")
+                          .replace("{variacion}", "—"))
+
+        caption = f"{emoji} *{texto_estado}* — {ts} AR\n{texto_base}"
         tg_foto(tmp_path, caption)
         print(f"    📨 Enviado: {nombre}")
+
 
 
 # ═══════════════════════════════════════════════════════════════════
