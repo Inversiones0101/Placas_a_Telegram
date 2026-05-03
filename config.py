@@ -20,6 +20,7 @@ APIS = {
     "ADR":           "https://data912.com/live/usa_adrs",
     "STOCKS":        "https://data912.com/live/arg_stocks",
     "CEDEARS":       "https://data912.com/live/arg_cedears",
+    "BONOS":         "https://data912.com/live/arg_bonds",   # AL30, GD30, etc.
     "FERIADOS":      "https://api.argentinadatos.com/v1/feriados/2026",
     "RIESGO_PAIS":   "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais",
     # ── Visor BCRA — API oficial v4.0 via bcra-connector ──────────
@@ -100,10 +101,17 @@ VISOR_ARG_COL3 = {
 #   url            → página a abrir con Playwright
 #   wait_selector  → CSS a esperar antes de capturar (gráficos JS)
 #   crop_selector  → elemento CSS a recortar
-#   zoom           → factor de ampliación (1.8 = x1.8)
+#   zoom           → factor de ampliación
 #   delay_ms       → ms extra para que el canvas JS termine de dibujar
-#   caption        → texto del mensaje en Telegram
+#   caption_key    → clave en MENSAJES para el texto base del caption
+#   ticker_api     → símbolo a buscar en APIS["BONOS"] para precio dinámico
+#                    None = caption estático sin precio
+#   fuente_api     → clave en APIS donde buscar el ticker (default "BONOS")
 #   activo         → True/False para activar/desactivar sin borrar
+#
+# Caption dinámico: si ticker_api está definido, el bot busca el precio
+# en la API y reemplaza {precio} y {variacion} en el texto de MENSAJES.
+# Ejemplo: "📈 AL30: ${precio} ({variacion}%)" → "📈 AL30: $91,320 (+1.01%)"
 
 CAPTURAS_WEB = {
 
@@ -114,7 +122,8 @@ CAPTURAS_WEB = {
         "crop_selector": "div.relative.h-full",
         "zoom":          1.8,
         "delay_ms":      4000,
-        "caption":       "📊 Caución 1D — MAE A3",
+        "caption_key":   "caucion_caption",
+        "ticker_api":    None,          # sin precio dinámico
         "activo":        True,
     },
 
@@ -125,7 +134,8 @@ CAPTURAS_WEB = {
         "crop_selector": "div.grid.grid-cols-1.gap-3.mt-2",
         "zoom":          1.8,
         "delay_ms":      4000,
-        "caption":       "💵 Dólar MEP (USMEP) — MAE A3",
+        "caption_key":   "usmep_caption",
+        "ticker_api":    None,
         "activo":        True,
     },
 
@@ -136,7 +146,8 @@ CAPTURAS_WEB = {
         "crop_selector": "#graficoIntradiario",
         "zoom":          2.2,
         "delay_ms":      5000,
-        "caption":       "📈 AL30 Intradiario — IOL",
+        "caption_key":   "al30_caption",
+        "ticker_api":    "AL30",        # busca precio en APIS["BONOS"]
         "activo":        True,
     },
 
@@ -147,18 +158,34 @@ CAPTURAS_WEB = {
         "crop_selector": ".highcharts-container",
         "zoom":          2.2,
         "delay_ms":      5000,
-        "caption":       "📈 GD30 Intradiario — IOL",
+        "caption_key":   "gd30_caption",
+        "ticker_api":    "GD30",        # busca precio en APIS["BONOS"]
         "activo":        True,
     },
 
+    # ── AL30 Intradiario — RAVA ───────────────────────────────────
+    # Alternativa a IOL. Rava usa TradingView embebido con ID estable.
+    # Activar cambiando "activo": True (y opcionalmente desactivar AL30_IOL)
+    "AL30_RAVA": {
+        "url":           "https://www.rava.com/perfil/AL30",
+        "wait_selector": "#grafico_tradingview",
+        "crop_selector": "#grafico_tradingview",
+        "zoom":          2.0,
+        "delay_ms":      6000,          # Rava puede tardar más en renderizar
+        "caption_key":   "al30_caption",
+        "ticker_api":    "AL30",
+        "activo":        False,         # ← cambiar a True para activar
+    },
+
     # ── Agregar más capturas aquí ──────────────────────────────────
-    # "MERVAL_IOL": {
-    #     "url":           "https://iol.invertironline.com/titulo/cotizacion/BCBA/IMV/INDICE-MERVAL/",
-    #     "wait_selector": "svg.highcharts-root",
-    #     "crop_selector": "svg.highcharts-root",
-    #     "zoom":          2.2,
-    #     "delay_ms":      5000,
-    #     "caption":       "📊 Merval Intradiario — IOL",
+    # "GD30_RAVA": {
+    #     "url":           "https://www.rava.com/perfil/GD30",
+    #     "wait_selector": "#grafico_tradingview",
+    #     "crop_selector": "#grafico_tradingview",
+    #     "zoom":          2.0,
+    #     "delay_ms":      6000,
+    #     "caption_key":   "gd30_caption",
+    #     "ticker_api":    "GD30",
     #     "activo":        False,
     # },
 }
@@ -364,22 +391,26 @@ DISEÑO_VISOR_BCRA = {
 
 MENSAJES = {
     # ── Captions de las capturas web (Playwright) ─────────────────
-    # Lo que aparece debajo de cada imagen en el chat de Telegram
-    "caucion_caption":  "📊 Caución 1D",          # ← cambiá el texto acá
-    "usmep_caption":    "💵 Dólar MEP",
-    "al30_caption":     "📈 AL30 Intradiario",
-    "gd30_caption":     "📈 GD30 Intradiario",
+    # Captions estáticos (sin ticker_api): texto fijo
+    "caucion_caption":  "📊 Caución 1D — MAE A3",
+    "usmep_caption":    "💵 Dólar MEP (USMEP) — MAE A3",
+
+    # Captions dinámicos (con ticker_api): usan {precio} y {variacion}
+    # El bot reemplaza automáticamente con el precio real de la API
+    # Ejemplo resultado: "📈 AL30 Intradiario: $91,320.00 (+1.01%)"
+    "al30_caption":     "📈 AL30 Intradiario: ${precio} ({variacion}%)",
+    "gd30_caption":     "📈 GD30 Intradiario: ${precio} ({variacion}%)",
 
     # ── Estado del mercado ────────────────────────────────────────
-    "merval_abierto":   "🟢 Merval Abierto",       # ← mensaje cuando el mercado está abierto
-    "merval_cerrado":   "🔴 Merval Cerrado",        # ← mensaje cuando cierra
+    "merval_abierto":   "🟢 Merval Abierto",
+    "merval_cerrado":   "🔴 Merval Cerrado",
 
     # ── Títulos de las tarjetas PNG ───────────────────────────────
-    "visor_arg_titulo": "🇦🇷  VISOR ARG",           # ← título en el header de la tarjeta
-    "visor_bcra_titulo": "VISOR BCRA",              # ← título en el header de la tarjeta BCRA
+    "visor_arg_titulo":  "🇦🇷  VISOR ARG",
+    "visor_bcra_titulo": "VISOR BCRA",
 
     # ── Captions de Telegram para Visor ARG y BCRA ───────────────
-    "visor_arg_tg":     "🇦🇷 Visor ARG",           # ← texto del mensaje en Telegram
+    "visor_arg_tg":     "🇦🇷 Visor ARG",
     "visor_bcra_tg":    "🏦 Visor BCRA",
     "fuente_datos":     "Fuente: data912.com",
 }
