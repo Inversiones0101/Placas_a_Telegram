@@ -15,15 +15,13 @@
 # ───────────────────────────────────────────────────────────────────
 # 1. FUENTES DE DATOS — URLs de las APIs
 # ───────────────────────────────────────────────────────────────────
-# NOTA: La API de feriados se construye dinámicamente en main.py
-# agregando el año actual: f"{APIS['FERIADOS']}{año}"
 
 APIS = {
     "ADR":           "https://data912.com/live/usa_adrs",
     "STOCKS":        "https://data912.com/live/arg_stocks",
     "CEDEARS":       "https://data912.com/live/arg_cedears",
     "BONOS":         "https://data912.com/live/arg_bonds",   # AL30, GD30, etc.
-    "FERIADOS":      "https://api.argentinadatos.com/v1/feriados/",
+    "FERIADOS":      "https://api.argentinadatos.com/v1/feriados/2026",
     "RIESGO_PAIS":   "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais",
     # ── Visor BCRA — API oficial v4.0 via bcra-connector ──────────
     # Sin token. pip install bcra-connector. verify_ssl=False nativo.
@@ -106,16 +104,14 @@ VISOR_ARG_COL3 = {
 #   zoom           → factor de ampliación
 #   delay_ms       → ms extra para que el canvas JS termine de dibujar
 #   caption_key    → clave en MENSAJES para el texto base del caption
-#   ticker_api     → símbolo a buscar en la API para precio dinámico
+#   ticker_api     → símbolo a buscar en APIS["BONOS"] para precio dinámico
 #                    None = caption estático sin precio
 #   fuente_api     → clave en APIS donde buscar el ticker (default "BONOS")
-#                    Ej: "BONOS", "STOCKS", "CEDEARS", etc.
 #   activo         → True/False para activar/desactivar sin borrar
 #
 # Caption dinámico: si ticker_api está definido, el bot busca el precio
 # en la API y reemplaza {precio} y {variacion} en el texto de MENSAJES.
-# IMPORTANTE: Usar {precio} (sin $) — el $ se agrega automáticamente.
-# Ejemplo: "📈 AL30: {precio} ({variacion}%)" → "📈 AL30: $91,320 (+1.01%)"
+# Ejemplo: "📈 AL30: ${precio} ({variacion}%)" → "📈 AL30: $91,320 (+1.01%)"
 
 CAPTURAS_WEB = {
 
@@ -128,7 +124,6 @@ CAPTURAS_WEB = {
         "delay_ms":      4000,
         "caption_key":   "caucion_caption",
         "ticker_api":    None,          # sin precio dinámico
-        "fuente_api":    None,          # default: BONOS
         "activo":        True,
     },
 
@@ -141,7 +136,6 @@ CAPTURAS_WEB = {
         "delay_ms":      4000,
         "caption_key":   "usmep_caption",
         "ticker_api":    None,
-        "fuente_api":    None,
         "activo":        True,
     },
 
@@ -154,7 +148,6 @@ CAPTURAS_WEB = {
         "delay_ms":      5000,
         "caption_key":   "al30_caption",
         "ticker_api":    "AL30",        # busca precio en APIS["BONOS"]
-        "fuente_api":    "BONOS",       # fuente explícita
         "activo":        True,
     },
 
@@ -167,7 +160,6 @@ CAPTURAS_WEB = {
         "delay_ms":      5000,
         "caption_key":   "gd30_caption",
         "ticker_api":    "GD30",        # busca precio en APIS["BONOS"]
-        "fuente_api":    "BONOS",
         "activo":        True,
     },
 
@@ -182,7 +174,6 @@ CAPTURAS_WEB = {
         "delay_ms":      6000,          # Rava puede tardar más en renderizar
         "caption_key":   "al30_caption",
         "ticker_api":    "AL30",
-        "fuente_api":    "BONOS",
         "activo":        False,         # ← cambiar a True para activar
     },
 
@@ -195,12 +186,12 @@ CAPTURAS_WEB = {
     #     "delay_ms":      6000,
     #     "caption_key":   "gd30_caption",
     #     "ticker_api":    "GD30",
-    #     "fuente_api":    "BONOS",
     #     "activo":        False,
     # },
 }
 
 # ───────────────────────────────────────────────────────────────────
+# 4. # ───────────────────────────────────────────────────────────────────
 # 4. VISOR BCRA — API oficial BCRA v4.0 via bcra-connector
 # ───────────────────────────────────────────────────────────────────
 # Librería: bcra-connector (pip install bcra-connector)
@@ -406,17 +397,16 @@ MENSAJES = {
 
     # Captions dinámicos (con ticker_api): usan {precio} y {variacion}
     # El bot reemplaza automáticamente con el precio real de la API
-    # IMPORTANTE: {precio} va SIN el $ — se agrega automáticamente
-    # Ejemplo resultado: "📈 AL30 Intradiario: $91,320 (+1.01%)"
-    "al30_caption":     "📈 AL30 Intradiario: {precio} ({variacion}%)",
-    "gd30_caption":     "📈 GD30 Intradiario: {precio} ({variacion}%)",
+    # Ejemplo resultado: "📈 AL30 Intradiario: $91,320.00 (+1.01%)"
+    "al30_caption":     "📈 AL30 Intradiario: ${precio} ({variacion}%)",
+    "gd30_caption":     "📈 GD30 Intradiario: ${precio} ({variacion}%)",
 
     # ── Estado del mercado ────────────────────────────────────────
     "merval_abierto":   "🟢 Merval Abierto",
     "merval_cerrado":   "🔴 Merval Cerrado",
 
     # ── Títulos de las tarjetas PNG ───────────────────────────────
-    "visor_arg_titulo":  "🇦  VISOR ARG",
+    "visor_arg_titulo":  "🇦🇷  VISOR ARG",
     "visor_bcra_titulo": "VISOR BCRA",
 
     # ── Captions de Telegram para Visor ARG y BCRA ───────────────
