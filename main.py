@@ -23,6 +23,37 @@ from config import (
     HORARIOS, ARCHIVOS, DISEÑO_VISOR_ARG, DISEÑO_VISOR_BCRA, MENSAJES,
 )
 
+# ═══════════════════════════════════════════════════════════════════
+# TEST DE CONEXIÓN TELEGRAM — Sacar después
+# ═══════════════════════════════════════════════════════════════════
+
+print("🔍 TEST: Verificando variables de entorno...")
+print(f"   TOKEN: {'✅ Configurado' if TOKEN else '❌ NO CONFIGURADO'}")
+print(f"   CHAT_ID: {'✅ Configurado' if CHAT_ID else '❌ NO CONFIGURADO'}")
+
+if TOKEN and CHAT_ID:
+    print("🔍 TEST: Enviando mensaje de prueba...")
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        r = requests.post(url,
+            json={
+                "chat_id": CHAT_ID,
+                "text": "✅ **BOT ACTIVO** - Conexión exitosa",
+                "parse_mode": "Markdown"
+            },
+            timeout=10
+        )
+        if r.status_code == 200:
+            print("   ✅ MENSAJE ENVIADO CON ÉXITO")
+        else:
+            print(f"   ❌ Error HTTP {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        print(f"   ❌ Excepción: {e}")
+else:
+    print("⚠️  TEST: No se puede enviar sin TOKEN y CHAT_ID")
+
+print("\n" + "="*60 + "\n")
+
 # ── Pillow ──────────────────────────────────────────────────────────
 from PIL import Image, ImageDraw, ImageFont
 
