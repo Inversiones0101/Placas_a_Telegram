@@ -36,38 +36,6 @@ TZ_AR   = pytz.timezone("America/Argentina/Buenos_Aires")
 
 
 # ═══════════════════════════════════════════════════════════════════
-# TEST DE CONEXIÓN TELEGRAM — EJECUTAR AL INICIO
-# ═══════════════════════════════════════════════════════════════════
-
-print("🔍 TEST: Verificando variables de entorno...")
-print(f"   TOKEN: {'✅ Configurado' if TOKEN else '❌ NO CONFIGURADO'}")
-print(f"   CHAT_ID: {'✅ Configurado' if CHAT_ID else '❌ NO CONFIGURADO'}")
-
-if TOKEN and CHAT_ID:
-    print("🔍 TEST: Enviando mensaje de prueba...")
-    try:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        r = requests.post(url,
-            json={
-                "chat_id": CHAT_ID,
-                "text": "✅ **BOT ACTIVO** - Conexión exitosa desde GitHub Actions",
-                "parse_mode": "Markdown"
-            },
-            timeout=10
-        )
-        if r.status_code == 200:
-            print("   ✅ MENSAJE DE PRUEBA ENVIADO CON ÉXITO")
-        else:
-            print(f"   ❌ Error HTTP {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        print(f"   ❌ Excepción al enviar: {e}")
-else:
-    print("⚠️  TEST: No se puede enviar sin TOKEN y CHAT_ID configurados")
-
-print("\n" + "="*60 + "\n")
-
-
-# ═══════════════════════════════════════════════════════════════════
 # SECCIÓN 1 — UTILIDADES
 # ═══════════════════════════════════════════════════════════════════
 
@@ -549,7 +517,7 @@ def _riesgo_pais() -> float | None:
     """Riesgo País desde argentinadatos.com — sin token, siempre funciona."""
     try:
         data = fetch_with_retry(APIS["RIESGO_PAIS"], retries=3, timeout=8)
-        if isinstance(data, list) and data:
+        if isinstance(data, list) and 
             valor = float(data[-1].get("valor", 0))
             print(f"    ✅ Riesgo País: {valor} bps")
             return valor
