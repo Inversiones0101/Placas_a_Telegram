@@ -416,7 +416,7 @@ MENSAJES = {
     "merval_cerrado":   "🔴 Merval Cerrado",
 
     # ── Títulos de las tarjetas PNG ───────────────────────────────
-    "visor_arg_titulo":  "🇦  VISOR ARG",
+    "visor_arg_titulo":  "🇷  VISOR ARG",
     "visor_bcra_titulo": "VISOR BCRA",
 
     # ── Captions de Telegram para Visor ARG y BCRA ───────────────
