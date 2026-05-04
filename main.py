@@ -11,7 +11,7 @@ Arquitectura: cron en horarios fijos → cada ejecución dura ~40 seg → sale.
 Sin time.sleep() internos. Control de doble envío via estado_envios.csv
 """
 
-import os, sys, io, requests, textwrap
+import os, sys, io, requests, textwrap, time
 import pandas as pd
 from datetime import datetime, date
 from pathlib import Path
@@ -47,7 +47,9 @@ def es_dia_habil() -> bool:
         print(f"⏸️  Fin de semana. Sin operación.")
         return False
     try:
-        resp = requests.get(APIS["FERIADOS"], timeout=8)
+        # API dinámica según año actual
+        año = hoy.year
+        resp = requests.get(f"{APIS['FERIADOS']}{año}", timeout=8)
         fechas = [f["fecha"] for f in resp.json() if "fecha" in f]
         if hoy.strftime("%Y-%m-%d") in fechas:
             print(f"🗓️  Feriado hoy. Sin operación.")
@@ -155,14 +157,33 @@ def _get_font(size: int, bold: bool = False):
                 pass
     return ImageFont.load_default()
 
+
+def fetch_with_retry(url: str, retries: int = 3, timeout: int = 10):
+    """
+    Fetch con retry exponencial.
+    Reintentos: 3 veces con backoff exponencial (2s, 4s, 8s).
+    """
+    for i in range(retries):
+        try:
+            r = requests.get(url, timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            if i == retries - 1:
+                raise
+            wait_time = 2 ** i
+            print(f"  ⚠️  Reintentando en {wait_time}s... ({i+1}/{retries})")
+            time.sleep(wait_time)
+
+
 def generar_Imagen_ARG(estado: str = "Abierto"):
     """
     Visita cada URL activa en CAPTURAS_WEB con Playwright,
     captura el elemento CSS indicado y envía cada imagen a Telegram.
 
     Caption dinámico: si la captura tiene 'ticker_api' definido, el bot
-    busca el precio en APIS["BONOS"] y lo inyecta en el texto del caption.
-    Ejemplo: "📈 AL30 Intradiario: $91,320.00 (+1.01%)"
+    busca el precio en la API configurada (default BONOS) y lo inyecta.
+    Ejemplo: "📈 AL30 Intradiario: $91,320 (+1.01%)"
 
     Una sola consulta a la API de bonos para todas las capturas → eficiente.
     """
@@ -189,10 +210,18 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
                           if cfg.get("ticker_api")}
     if tickers_necesarios:
         try:
-            r = requests.get(APIS["BONOS"], timeout=10)
-            r.raise_for_status()
-            datos_bonos = {item["symbol"]: item for item in r.json()}
-            print(f"  💹 Precios cargados: {', '.join(tickers_necesarios)}")
+            # API dinámica según fuente_api configurada (default: BONOS)
+            fuentes_unicas = set()
+            for cfg in activas.values():
+                if cfg.get("ticker_api"):
+                    fuentes_unicas.add(cfg.get("fuente_api", "BONOS"))
+            
+            for fuente in fuentes_unicas:
+                print(f"  💹 Cargando precios desde APIS['{fuente}']...")
+                data = fetch_with_retry(APIS[fuente], retries=3, timeout=10)
+                datos_bonos.update({item["symbol"]: item for item in data})
+            
+            print(f"  ✅ Precios cargados: {', '.join(tickers_necesarios)}")
         except Exception as e:
             print(f"  ⚠️  No se pudieron cargar precios de bonos: {e}")
 
@@ -262,8 +291,10 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
             precio_str = f"{d['c']:,.2f}"
             var_str    = f"{d['pct_change']:+.2f}"
             # Reemplazo manual → evita errores con llaves literales en .format()
+            # NOTA: El placeholder en config.py es {precio} (sin $)
+            # Agregamos el $ manualmente en el reemplazo
             texto_base = (texto_base
-                          .replace("{precio}", precio_str)
+                          .replace("{precio}", f"${precio_str}")
                           .replace("{variacion}", var_str))
             print(f"    💹 {ticker}: ${precio_str} ({var_str}%)")
         elif ticker:
@@ -271,12 +302,12 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
             texto_base = (texto_base
                           .replace(": ${precio} ({variacion}%)", "")
                           .replace("${precio}", "—")
+                          .replace("{precio}", "—")
                           .replace("{variacion}", "—"))
 
         caption = f"{emoji} *{texto_estado}* — {ts} AR\n{texto_base}"
         tg_foto(tmp_path, caption)
         print(f"    📨 Enviado: {nombre}")
-
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -286,9 +317,8 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
 def _fetch_api(clave: str) -> dict:
     """Descarga la API indicada y devuelve dict {symbol: {c, pct_change}}."""
     try:
-        r = requests.get(APIS[clave], timeout=10)
-        r.raise_for_status()
-        return {item["symbol"]: item for item in r.json()}
+        data = fetch_with_retry(APIS[clave], retries=3, timeout=10)
+        return {item["symbol"]: item for item in data}
     except Exception as e:
         print(f"⚠️  Error API {clave}: {e}")
         return {}
@@ -482,9 +512,7 @@ def _bcra_variable(var_id: int, todas: dict) -> float | None:
 def _riesgo_pais() -> float | None:
     """Riesgo País desde argentinadatos.com — sin token, siempre funciona."""
     try:
-        r = requests.get(APIS["RIESGO_PAIS"], timeout=8)
-        r.raise_for_status()
-        data = r.json()
+        data = fetch_with_retry(APIS["RIESGO_PAIS"], retries=3, timeout=8)
         if isinstance(data, list) and data:
             valor = float(data[-1].get("valor", 0))
             print(f"    ✅ Riesgo País: {valor} bps")
