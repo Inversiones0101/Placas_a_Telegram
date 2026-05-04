@@ -517,7 +517,7 @@ def _riesgo_pais() -> float | None:
     """Riesgo País desde argentinadatos.com — sin token, siempre funciona."""
     try:
         data = fetch_with_retry(APIS["RIESGO_PAIS"], retries=3, timeout=8)
-        if isinstance(data, list) and 
+        if isinstance(data, list) and data: 
             valor = float(data[-1].get("valor", 0))
             print(f"    ✅ Riesgo País: {valor} bps")
             return valor
