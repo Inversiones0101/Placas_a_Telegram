@@ -11,7 +11,7 @@ Arquitectura: cron en horarios fijos → cada ejecución dura ~40 seg → sale.
 Sin time.sleep() internos. Control de doble envío via estado_envios.csv
 """
 
-import os, sys, io, requests, textwrap, time
+import os, sys, io, requests, textwrap
 import pandas as pd
 from datetime import datetime, date
 from pathlib import Path
@@ -25,10 +25,6 @@ from config import (
 
 # ── Pillow ──────────────────────────────────────────────────────────
 from PIL import Image, ImageDraw, ImageFont
-
-# ═══════════════════════════════════════════════════════════════════
-# DEFINICIÓN DE VARIABLES DE ENTORNO
-# ═══════════════════════════════════════════════════════════════════
 
 TOKEN   = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -51,9 +47,9 @@ def es_dia_habil() -> bool:
         print(f"⏸️  Fin de semana. Sin operación.")
         return False
     try:
-        # API dinámica según año actual
-        año = hoy.year
-        resp = requests.get(f"{APIS['FERIADOS']}{año}", timeout=8)
+        # URL dinámica por año → funciona sin cambios cuando cambie el año
+        url_feriados = f"{APIS['FERIADOS']}{hoy.year}"
+        resp = requests.get(url_feriados, timeout=8)
         fechas = [f["fecha"] for f in resp.json() if "fecha" in f]
         if hoy.strftime("%Y-%m-%d") in fechas:
             print(f"🗓️  Feriado hoy. Sin operación.")
@@ -161,33 +157,14 @@ def _get_font(size: int, bold: bool = False):
                 pass
     return ImageFont.load_default()
 
-
-def fetch_with_retry(url: str, retries: int = 3, timeout: int = 10):
-    """
-    Fetch con retry exponencial.
-    Reintentos: 3 veces con backoff exponencial (2s, 4s, 8s).
-    """
-    for i in range(retries):
-        try:
-            r = requests.get(url, timeout=timeout)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            if i == retries - 1:
-                raise
-            wait_time = 2 ** i
-            print(f"  ⚠️  Reintentando en {wait_time}s... ({i+1}/{retries})")
-            time.sleep(wait_time)
-
-
 def generar_Imagen_ARG(estado: str = "Abierto"):
     """
     Visita cada URL activa en CAPTURAS_WEB con Playwright,
     captura el elemento CSS indicado y envía cada imagen a Telegram.
 
     Caption dinámico: si la captura tiene 'ticker_api' definido, el bot
-    busca el precio en la API configurada (default BONOS) y lo inyecta.
-    Ejemplo: "📈 AL30 Intradiario: $91,320 (+1.01%)"
+    busca el precio en APIS["BONOS"] y lo inyecta en el texto del caption.
+    Ejemplo: "📈 AL30 Intradiario: $91,320.00 (+1.01%)"
 
     Una sola consulta a la API de bonos para todas las capturas → eficiente.
     """
@@ -208,26 +185,28 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
 
     print(f"📸 Capturas web ({len(activas)}) — {ts}")
 
-    # ── Precargar precios de bonos (1 sola request para todas las capturas) ──
-    datos_bonos = {}
-    tickers_necesarios = {cfg["ticker_api"] for cfg in activas.values()
-                          if cfg.get("ticker_api")}
-    if tickers_necesarios:
+    # ── Precargar precios (1 sola request por fuente necesaria) ──────
+    # Agrupa tickers por su fuente_api (default "BONOS") para hacer
+    # una sola request por API en vez de una por captura.
+    datos_por_fuente: dict[str, dict] = {}
+    fuentes_necesarias = {
+        cfg.get("fuente_api", "BONOS")
+        for cfg in activas.values()
+        if cfg.get("ticker_api")
+    }
+    for fuente in fuentes_necesarias:
+        if fuente not in APIS:
+            print(f"  ⚠️  fuente_api '{fuente}' no está en APIS. Saltando.")
+            continue
         try:
-            # API dinámica según fuente_api configurada (default: BONOS)
-            fuentes_unicas = set()
-            for cfg in activas.values():
-                if cfg.get("ticker_api"):
-                    fuentes_unicas.add(cfg.get("fuente_api", "BONOS"))
-            
-            for fuente in fuentes_unicas:
-                print(f"  💹 Cargando precios desde APIS['{fuente}']...")
-                data = fetch_with_retry(APIS[fuente], retries=3, timeout=10)
-                datos_bonos.update({item["symbol"]: item for item in data})
-            
-            print(f"  ✅ Precios cargados: {', '.join(tickers_necesarios)}")
+            r = requests.get(APIS[fuente], timeout=10)
+            r.raise_for_status()
+            datos_por_fuente[fuente] = {item["symbol"]: item for item in r.json()}
+            tickers = [c["ticker_api"] for c in activas.values()
+                       if c.get("fuente_api", "BONOS") == fuente and c.get("ticker_api")]
+            print(f"  💹 [{fuente}] cargado: {', '.join(tickers)}")
         except Exception as e:
-            print(f"  ⚠️  No se pudieron cargar precios de bonos: {e}")
+            print(f"  ⚠️  No se pudo cargar {fuente}: {e}")
 
     # ── Captura de pantalla con Playwright ───────────────────────────
     imgs_capturadas: dict[str, Image.Image] = {}
@@ -254,11 +233,13 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
                 if cfg.get("delay_ms", 0) > 0:
                     page.wait_for_timeout(cfg["delay_ms"])
 
+                # Captura del elemento — fallback a pantalla completa si no existe
                 elemento  = page.query_selector(cfg["crop_selector"])
-                img_bytes = elemento.screenshot() if elemento else page.screenshot(full_page=False)
-
-                if not elemento:
+                if elemento:
+                    img_bytes = elemento.screenshot()
+                else:
                     print(f"    ⚠️  crop_selector '{cfg['crop_selector']}' no encontrado. Captura completa.")
+                    img_bytes = page.screenshot(full_page=False)
 
                 img  = Image.open(io.BytesIO(img_bytes))
                 zoom = cfg.get("zoom", 1.0)
@@ -284,34 +265,34 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
         tmp_path = f"captura_{nombre.lower()}.png"
         imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
 
-        # Texto base desde MENSAJES usando caption_key (o caption legacy)
+        # Texto base desde MENSAJES usando caption_key
         caption_key = cfg.get("caption_key")
         texto_base  = MENSAJES.get(caption_key, cfg.get("caption", nombre))
 
         # Inyección dinámica de precio si hay ticker_api configurado
         ticker = cfg.get("ticker_api")
-        if ticker and ticker in datos_bonos:
-            d          = datos_bonos[ticker]
-            precio_str = f"{d['c']:,.2f}"
+        fuente = cfg.get("fuente_api", "BONOS")
+        datos_fuente = datos_por_fuente.get(fuente, {})
+
+        if ticker and ticker in datos_fuente:
+            d          = datos_fuente[ticker]
+            precio_str = f"${d['c']:,.2f}"      # $ incluido aquí → {precio} sin $
             var_str    = f"{d['pct_change']:+.2f}"
-            # Reemplazo manual → evita errores con llaves literales en .format()
-            # NOTA: El placeholder en config.py es {precio} (sin $)
-            # Agregamos el $ manualmente en el reemplazo
             texto_base = (texto_base
-                          .replace("{precio}", f"${precio_str}")
+                          .replace("{precio}",    precio_str)
                           .replace("{variacion}", var_str))
-            print(f"    💹 {ticker}: ${precio_str} ({var_str}%)")
+            print(f"    💹 {ticker}: {precio_str} ({var_str}%)")
         elif ticker:
-            # Ticker configurado pero sin dato → remover placeholders
+            # Ticker configurado pero sin dato → mostrar caption sin placeholders
             texto_base = (texto_base
-                          .replace(": ${precio} ({variacion}%)", "")
-                          .replace("${precio}", "—")
-                          .replace("{precio}", "—")
+                          .replace("{precio}",    "—")
                           .replace("{variacion}", "—"))
+            print(f"    ⚠️  {ticker}: sin dato de precio")
 
         caption = f"{emoji} *{texto_estado}* — {ts} AR\n{texto_base}"
         tg_foto(tmp_path, caption)
         print(f"    📨 Enviado: {nombre}")
+
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -321,8 +302,9 @@ def generar_Imagen_ARG(estado: str = "Abierto"):
 def _fetch_api(clave: str) -> dict:
     """Descarga la API indicada y devuelve dict {symbol: {c, pct_change}}."""
     try:
-        data = fetch_with_retry(APIS[clave], retries=3, timeout=10)
-        return {item["symbol"]: item for item in data}
+        r = requests.get(APIS[clave], timeout=10)
+        r.raise_for_status()
+        return {item["symbol"]: item for item in r.json()}
     except Exception as e:
         print(f"⚠️  Error API {clave}: {e}")
         return {}
@@ -516,7 +498,9 @@ def _bcra_variable(var_id: int, todas: dict) -> float | None:
 def _riesgo_pais() -> float | None:
     """Riesgo País desde argentinadatos.com — sin token, siempre funciona."""
     try:
-        data = fetch_with_retry(APIS["RIESGO_PAIS"], retries=3, timeout=8)
+        r = requests.get(APIS["RIESGO_PAIS"], timeout=8)
+        r.raise_for_status()
+        data = r.json()
         if isinstance(data, list) and data:
             valor = float(data[-1].get("valor", 0))
             print(f"    ✅ Riesgo País: {valor} bps")
@@ -648,58 +632,3 @@ def generar_Visor_BCRA() -> str:
     img.save(path, "PNG", optimize=True)
     print(f"✅ Visor BCRA guardado: {path}")
     return path
-
-
-# ═══════════════════════════════════════════════════════════════════
-# EJECUCIÓN PRINCIPAL
-# ═══════════════════════════════════════════════════════════════════
-
-if __name__ == "__main__":
-    print("🚀 Iniciando Placas_a_Telegram")
-    print(f"🕐 Hora actual: {hora_ar().strftime('%d/%m/%Y %H:%M:%S')} AR")
-    print()
-    
-    # Verificar si es día hábil
-    if not es_dia_habil():
-        print("✅ Script finalizado (día no hábil)")
-        sys.exit(0)
-    
-    # Limpiar estado viejo
-    limpiar_estado_viejo()
-    
-    # Determinar qué funciones ejecutar según la hora
-    ahora = hhmm()
-    
-    # Buscar TODAS las tareas que matcheen la hora actual
-    tareas_a_ejecutar = [
-        tarea for tarea, horario in HORARIOS.items()
-        if es_hora_exacta(horario)
-    ]
-    
-    if not tareas_a_ejecutar:
-        print(f"⏰ No hay tarea programada para {ahora}")
-        print("💡 Los horarios configurados son:")
-        for tarea, horario in HORARIOS.items():
-            print(f"   - {tarea}: {horario}")
-        sys.exit(0)
-    
-    print(f"📋 Tareas programadas: {', '.join(tareas_a_ejecutar)}")
-    print()
-    
-    # Ejecutar CADA tarea que matchee
-    for tarea_ejecutar in tareas_a_ejecutar:
-        print(f"▶️  Ejecutando: {tarea_ejecutar}")
-        
-        if tarea_ejecutar.startswith("imagen"):
-            estado = "Cerrado" if "cierre" in tarea_ejecutar else "Abierto"
-            generar_Imagen_ARG(estado=estado)
-            
-        elif tarea_ejecutar.startswith("visor_arg"):
-            generar_Visor_ARG()
-            
-        elif tarea_ejecutar == "visor_bcra":
-            generar_Visor_BCRA()
-        
-        print()
-    
-    print("✅ Script finalizado correctamente")
