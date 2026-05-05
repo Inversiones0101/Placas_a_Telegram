@@ -517,7 +517,7 @@ def _riesgo_pais() -> float | None:
     """Riesgo País desde argentinadatos.com — sin token, siempre funciona."""
     try:
         data = fetch_with_retry(APIS["RIESGO_PAIS"], retries=3, timeout=8)
-        if isinstance(data, list) and data: 
+        if isinstance(data, list) and data:
             valor = float(data[-1].get("valor", 0))
             print(f"    ✅ Riesgo País: {valor} bps")
             return valor
@@ -667,37 +667,39 @@ if __name__ == "__main__":
     # Limpiar estado viejo
     limpiar_estado_viejo()
     
-    # Determinar qué función ejecutar según la hora
+    # Determinar qué funciones ejecutar según la hora
     ahora = hhmm()
     
-    # Buscar el horario más cercano
-    tarea_ejecutar = None
+    # Buscar TODAS las tareas que matcheen la hora actual
+    tareas_a_ejecutar = [
+        tarea for tarea, horario in HORARIOS.items()
+        if es_hora_exacta(horario)
+    ]
     
-    for tarea, horario in HORARIOS.items():
-        if es_hora_exacta(horario):
-            tarea_ejecutar = tarea
-            break
-    
-    if not tarea_ejecutar:
+    if not tareas_a_ejecutar:
         print(f"⏰ No hay tarea programada para {ahora}")
         print("💡 Los horarios configurados son:")
         for tarea, horario in HORARIOS.items():
             print(f"   - {tarea}: {horario}")
         sys.exit(0)
     
-    print(f"📋 Tarea programada: {tarea_ejecutar}")
+    print(f"📋 Tareas programadas: {', '.join(tareas_a_ejecutar)}")
     print()
     
-    # Ejecutar según corresponda
-    if tarea_ejecutar.startswith("imagen"):
-        estado = "Cerrado" if "cierre" in tarea_ejecutar else "Abierto"
-        generar_Imagen_ARG(estado=estado)
+    # Ejecutar CADA tarea que matchee
+    for tarea_ejecutar in tareas_a_ejecutar:
+        print(f"▶️  Ejecutando: {tarea_ejecutar}")
         
-    elif tarea_ejecutar.startswith("visor_arg"):
-        generar_Visor_ARG()
+        if tarea_ejecutar.startswith("imagen"):
+            estado = "Cerrado" if "cierre" in tarea_ejecutar else "Abierto"
+            generar_Imagen_ARG(estado=estado)
+            
+        elif tarea_ejecutar.startswith("visor_arg"):
+            generar_Visor_ARG()
+            
+        elif tarea_ejecutar == "visor_bcra":
+            generar_Visor_BCRA()
         
-    elif tarea_ejecutar == "visor_bcra":
-        generar_Visor_BCRA()
+        print()
     
-    print()
     print("✅ Script finalizado correctamente")
