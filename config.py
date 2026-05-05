@@ -168,13 +168,13 @@ CAPTURAS_WEB = {
     # Activar cambiando "activo": True (y opcionalmente desactivar AL30_IOL)
     "AL30_RAVA": {
         "url":           "https://www.rava.com/perfil/AL30",
-        "wait_selector": "#grafico_tradingview",
-        "crop_selector": "#grafico_tradingview",
-        "zoom":          2.0,
-        "delay_ms":      6000,          # Rava puede tardar más en renderizar
+        "wait_selector": ".tradingview-widget-container",          # Espera a que cargue el contenedor del gráfico
+        "crop_selector": ".tradingview-widget-container",          # Selector apunta específicamente al widget del gráfico
+        "zoom":          2.5,
+        "delay_ms":      8000,          # Rava puede tardar más en renderizar
         "caption_key":   "al30_caption",
         "ticker_api":    "AL30",
-        "activo":        True,         # ← cambiar a True para activar
+        "activo":        True,         # ← cambiar a True activar / False desactivar
     },
 
     # ── Agregar más capturas aquí ──────────────────────────────────
