@@ -174,7 +174,7 @@ CAPTURAS_WEB = {
         "delay_ms":      6000,          # Rava puede tardar más en renderizar
         "caption_key":   "al30_caption",
         "ticker_api":    "AL30",
-        "activo":        False,         # ← cambiar a True para activar
+        "activo":        True,         # ← cambiar a True para activar
     },
 
     # ── Agregar más capturas aquí ──────────────────────────────────
