@@ -79,33 +79,50 @@ def es_hora_exacta(h_obj: str, tolerancia: int = 29) -> bool:
 # SECCIÓN 2 — CONTROL DE DOBLE ENVÍO
 # ═══════════════════════════════════════════════════════════════════
 
+def _leer_estado_csv(path: str) -> pd.DataFrame:
+    """
+    Lee el CSV de estado. Maneja 3 casos problemáticos:
+      1. No existe → retorna DataFrame vacío con columnas correctas
+      2. Existe pero está vacío (0 bytes) → retorna DataFrame vacío
+      3. Existe con datos → retorna DataFrame normal
+    """
+    cols = ["fecha", "clave"]
+    if not os.path.exists(path):
+        return pd.DataFrame(columns=cols)
+    try:
+        # Verificar si el archivo tiene contenido real
+        if os.path.getsize(path) == 0:
+            return pd.DataFrame(columns=cols)
+        df = pd.read_csv(path, dtype=str)
+        # Verificar que tiene las columnas esperadas
+        if df.empty or not all(c in df.columns for c in cols):
+            return pd.DataFrame(columns=cols)
+        return df
+    except Exception as e:
+        print(f"  ⚠️  Error leyendo {path}: {e}. Reiniciando estado.")
+        return pd.DataFrame(columns=cols)
+
 def ya_se_envio(clave: str) -> bool:
     path = ARCHIVOS["estado_envios"]
-    if not os.path.exists(path):
+    df   = _leer_estado_csv(path)
+    if df.empty:
         return False
-    try:
-        df  = pd.read_csv(path, dtype=str)
-        hoy = hora_ar().strftime("%Y-%m-%d")
-        return ((df["fecha"] == hoy) & (df["clave"] == clave)).any()
-    except Exception:
-        return False
+    hoy = hora_ar().strftime("%Y-%m-%d")
+    return ((df["fecha"] == hoy) & (df["clave"] == clave)).any()
 
 def marcar_enviado(clave: str):
     path  = ARCHIVOS["estado_envios"]
     hoy   = hora_ar().strftime("%Y-%m-%d")
     nuevo = pd.DataFrame([{"fecha": hoy, "clave": clave}])
-    if not os.path.exists(path):
-        nuevo.to_csv(path, index=False)
-    else:
-        df = pd.read_csv(path, dtype=str)
-        pd.concat([df, nuevo], ignore_index=True).to_csv(path, index=False)
+    df    = _leer_estado_csv(path)
+    pd.concat([df, nuevo], ignore_index=True).to_csv(path, index=False)
 
 def limpiar_estado_viejo():
     path = ARCHIVOS["estado_envios"]
-    if not os.path.exists(path):
+    df   = _leer_estado_csv(path)
+    if df.empty:
         return
     try:
-        df  = pd.read_csv(path, dtype=str)
         hoy = hora_ar().date()
         df  = df[df["fecha"].apply(lambda f: (hoy - date.fromisoformat(f)).days <= 3)]
         df.to_csv(path, index=False)
@@ -185,23 +202,30 @@ def fetch_with_retry(url: str, retries: int = 3, timeout: int = 10):
 # [FIX-3] Captura con soporte de iframe para sitios como Rava (TradingView embebido)
 def _capturar_elemento(page, cfg: dict) -> bytes | None:
     """
-    Intenta capturar el crop_selector en el DOM principal.
-    Si falla y hay iframe_selector configurado, entra al iframe y reintenta.
-    Retorna bytes de la imagen o None si todo falla.
+    Estrategia de captura en 3 capas de fallback:
+
+    1. crop_selector en DOM principal  → screenshot() del elemento
+    2. iframe_selector + crop_selector → frame_locator() para iframes externos
+    3. crop_box (x, y, w, h en %)     → recorte por coordenadas del viewport
+       Ideal para sitios que renderizan gráficos con JS/canvas sin selector estable.
+       Las coordenadas son porcentajes del viewport (0.0–1.0) → independiente de zoom.
+    4. Fallback: screenshot completo del viewport (limitado a 1280×900px).
     """
-    crop_selector  = cfg["crop_selector"]
-    iframe_selector = cfg.get("iframe_selector")  # opcional en config
+    crop_selector   = cfg.get("crop_selector")
+    iframe_selector = cfg.get("iframe_selector")
+    crop_box        = cfg.get("crop_box")   # dict: {x, y, w, h} en fracción 0-1
 
-    # Intento 1: DOM principal
-    elemento = page.query_selector(crop_selector)
-    if elemento:
-        try:
-            return elemento.screenshot()
-        except Exception as e:
-            print(f"    ⚠️  screenshot() en DOM principal falló: {e}")
+    # ── Intento 1: DOM principal ─────────────────────────────────
+    if crop_selector:
+        elemento = page.query_selector(crop_selector)
+        if elemento:
+            try:
+                return elemento.screenshot()
+            except Exception as e:
+                print(f"    ⚠️  screenshot() en DOM principal falló: {e}")
 
-    # Intento 2: dentro del iframe (para TradingView, etc.)
-    if iframe_selector:
+    # ── Intento 2: iframe externo (TradingView, etc.) ────────────
+    if iframe_selector and crop_selector:
         try:
             frame = page.frame_locator(iframe_selector)
             el_en_frame = frame.locator(crop_selector).first
@@ -210,9 +234,24 @@ def _capturar_elemento(page, cfg: dict) -> bytes | None:
         except Exception as e:
             print(f"    ⚠️  screenshot() en iframe '{iframe_selector}' falló: {e}")
 
-    # Intento 3: captura completa del viewport (fallback controlado)
-    # Limita a 1280×900 para evitar PHOTO_INVALID_DIMENSIONS de Telegram
-    print(f"    ⚠️  crop_selector '{crop_selector}' no encontrado. Captura de viewport.")
+    # ── Intento 3: recorte por coordenadas (crop_box) ───────────
+    if crop_box:
+        try:
+            vp   = page.viewport_size  # {"width": W, "height": H}
+            W, H = vp["width"], vp["height"]
+            clip = {
+                "x":      int(crop_box["x"] * W),
+                "y":      int(crop_box["y"] * H),
+                "width":  int(crop_box["w"] * W),
+                "height": int(crop_box["h"] * H),
+            }
+            print(f"    📐 Recorte por coordenadas: {clip}")
+            return page.screenshot(full_page=False, clip=clip)
+        except Exception as e:
+            print(f"    ⚠️  crop_box falló: {e}")
+
+    # ── Intento 4: fallback viewport completo ────────────────────
+    print(f"    ⚠️  Sin selector válido. Captura de viewport completo.")
     return page.screenshot(full_page=False)
 
 
