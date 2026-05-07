@@ -144,24 +144,30 @@ CAPTURAS_WEB = {
     },
 
     # ── AL30 Intradiario — RAVA ───────────────────────────────────
-    # [FIX-3] Rava usa TradingView embebido en un <iframe>.
-    # Playwright no puede ver el contenido del iframe en el DOM principal,
-    # por eso el selector anterior fallaba silenciosamente.
+    # [FIX-3 v2] Rava renderiza el gráfico intradiario como elemento nativo
+    # (NO es un iframe de TradingView). El gráfico está en la esquina
+    # superior derecha de la página, por eso usamos crop_box con
+    # coordenadas relativas al viewport (fracción 0.0–1.0).
     #
-    # Solución: definir iframe_selector con el <iframe> de TradingView.
-    # main.py usa frame_locator(iframe_selector) para entrar al frame
-    # y luego busca crop_selector adentro.
+    # Ajuste de coordenadas si el recorte no queda bien:
+    #   "x" → desplazamiento horizontal desde la izquierda (0=izq, 1=der)
+    #   "y" → desplazamiento vertical desde arriba (0=arriba, 1=abajo)
+    #   "w" → ancho del recorte como fracción del viewport
+    #   "h" → alto del recorte como fracción del viewport
     #
-    # iframe_selector: el iframe de TradingView en Rava tiene
-    # title="Advanced Chart Widget" o puede identificarse por src con "tradingview.com".
-    # Si el bot sigue fallando, probar con: "iframe[src*='tradingview.com']"
+    # Con viewport 1280×900:
+    #   x=0.49 → empieza en pixel 627
+    #   y=0.10 → empieza en pixel 90
+    #   w=0.38 → ancho de 486px
+    #   h=0.55 → alto de 495px
     "AL30_RAVA": {
         "url":            "https://www.rava.com/perfil/AL30",
-        "wait_selector":  "iframe[src*='tradingview.com']",    # espera a que cargue el iframe
-        "crop_selector":  ".chart-container",                  # selector DENTRO del iframe
-        "iframe_selector": "iframe[src*='tradingview.com']",   # [FIX-3] entrar al iframe
-        "zoom":           2.0,
-        "delay_ms":       10000,   # TradingView necesita tiempo para renderizar el canvas
+        "wait_selector":  None,              # sin selector a esperar
+        "crop_selector":  None,              # sin selector CSS
+        "iframe_selector": None,             # no es un iframe
+        "crop_box":       {"x": 0.49, "y": 0.10, "w": 0.38, "h": 0.55},
+        "zoom":           2.5,
+        "delay_ms":       8000,              # esperar que cargue el gráfico JS
         "caption_key":    "al30_caption",
         "ticker_api":     "AL30",
         "activo":         True,
