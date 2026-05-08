@@ -161,16 +161,16 @@ CAPTURAS_WEB = {
     #   w=0.38 → ancho de 486px
     #   h=0.55 → alto de 495px
     "AL30_RAVA": {
-        "url":            "https://www.rava.com/perfil/AL30",
-        "wait_selector":  None,              # sin selector a esperar
-        "crop_selector":  None,              # sin selector CSS
-        "iframe_selector": None,             # no es un iframe
-        "crop_box":       {"x": 0.49, "y": 0.10, "w": 0.38, "h": 0.55},
-        "zoom":           2.5,
-        "delay_ms":       8000,              # esperar que cargue el gráfico JS
-        "caption_key":    "al30_caption",
-        "ticker_api":     "AL30",
-        "activo":         True,
+        "url":             "https://www.rava.com/perfil/AL30",
+        "wait_selector":   "div.recharts-wrapper svg",
+        "crop_selector":   "div.recharts-wrapper",
+        "iframe_selector": None,
+        "crop_box":        {"x": 0.49, "y": 0.10, "w": 0.38, "h": 0.55},
+        "zoom":            2.5,
+        "delay_ms":        6000,
+        "caption_key":     "al30_caption",
+        "ticker_api":      "AL30",
+        "activo":          True,
     },
 
     # ── Agregar más capturas aquí ──────────────────────────────────
