@@ -1,5 +1,4 @@
 name: Placas a Telegram
-
 on:
   schedule:
     # Horarios fijos en UTC (AR = UTC-3)
@@ -17,30 +16,27 @@ on:
     - cron: '0 19 * * 1-5'     # 16:00 AR — imagen web
     - cron: '0 20 * * 1-5'     # 17:00 AR — imagen cierre + visor ARG
     - cron: '30 20 * * 1-5'    # 17:30 AR — visor BCRA
-
   workflow_dispatch:   # ejecución manual para pruebas
-
 permissions:
   contents: write
-
 jobs:
   placas:
     runs-on: ubuntu-latest
-    timeout-minutes: 10   # Playwright(~40s) + bcra-connector + Visor ARG/BCRA
-
+    timeout-minutes: 15   # [AJUSTE] subido de 10 a 15 min
+                          # A las 17:00 AR se ejecutan hasta 3 tareas juntas:
+                          # imagen_cierre (5 capturas Playwright ~4min) +
+                          # visor_arg_3 (~30s) + eventualmente visor_bcra (~30s)
+                          # Con 10min el job podía cortarse en casos lentos.
     steps:
-
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           persist-credentials: true
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-
       # ── Cache de Playwright (Chromium) ─────────────────────────
       # Evita descargar Chromium (~100MB) en cada ejecución
       - name: Cache Playwright
@@ -50,23 +46,19 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
-
       - name: Instalar dependencias Python
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Instalar Playwright + Chromium
         run: |
           playwright install chromium --with-deps
-
       - name: Ejecutar Placas
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TZ: "America/Argentina/Buenos_Aires"
         run: python main.py
-
       # ── Guardar estado con reintento ante conflictos de push ───
       # El error "rejected (fetch first)" ocurre cuando dos workflows
       # corren simultáneamente. El pull --rebase lo resuelve.
