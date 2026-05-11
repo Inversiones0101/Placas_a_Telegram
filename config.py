@@ -165,7 +165,7 @@ CAPTURAS_WEB = {
         "wait_selector":   "div.recharts-wrapper svg",
         "crop_selector":   "div.recharts-wrapper",
         "iframe_selector": None,
-        "crop_box":        {"x": 0.49, "y": 0.10, "w": 0.38, "h": 0.55},
+        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
         "zoom":            2.5,
         "delay_ms":        6000,
         "caption_key":     "al30_caption",
@@ -189,35 +189,33 @@ CAPTURAS_WEB = {
 
 
 # ───────────────────────────────────────────────────────────────────
-# 4. VISOR BCRA — API oficial BCRA v4.0 via bcra-connector
+# 4. VISOR BCRA — API oficial BCRA v4.0
+#    Endpoint: https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{id}
+#    Docs:     https://principales-variables.bcra.apidocs.ar/
 # ───────────────────────────────────────────────────────────────────
 # IDs v4.0 confirmados operativos (verificado mayo 2026):
-#   1  → Reservas Internacionales (millones USD)   T-2  ✅
-#   4  → USD Oficial A3500                         T+0  ✅
-#   6  → Base Monetaria (millones $)               T-2  ⚠️ puede estar discontinuado
-#   7  → Tasa BADLAR TNA (%)                       T+0  ✅
-#   15 → CER                                       T+0  ✅
-#   34 → Tasa Política Monetaria TNA (%)           T+0  ⚠️ discontinuado desde 2024
+#   1   → Reservas Internacionales (millones USD)        T-2
+#   5   → USD Mayorista A3500 (Comunicacion A 3500)      T+0
+#   7   → Tasa BADLAR bancos privados TNA (%)            T+0
+#   15  → Base Monetaria Total (millones $)              T-2
+#   30  → CER (Coef. Estabilizacion de Referencia)       T+0
+#   44  → Tasa TAMAR bancos privados TNA (%)             T+0
 #
-# [FIX-4] Si un ID devuelve "—", main.py busca automáticamente
-# la variable por palabras clave en la descripción (fallback dinámico).
-# Ver FALLBACKS_BCRA en main.py para ajustar las palabras clave.
-#
-# id_var = None        → Riesgo País (argentinadatos.com)
-# id_var = int         → variable directa bcra-connector
-# id_var = "calc:X/Y"  → ratio calculado entre ID X e ID Y
+# id_var = None        -> Riesgo Pais (argentinadatos.com)
+# id_var = int         -> variable directa via bcra-connector
+# id_var = "calc:X/Y"  -> ratio calculado entre ID X e ID Y
 
 VISOR_BCRA_ITEMS = [
-    # id_var        Etiqueta           Col   Formato
-    (None,          "RIESGO PAIS",    "T0", "bps"),
-    (4,             "USD A3500",      "T0", "usd4"),
-    (15,            "CER",            "T0", "num6"),
-    (7,             "BADLAR",         "T0", "pct2"),
-    (34,            "TASA POL.MON.",  "T0", "pct2"),   # fallback automático si ID 34 falla
-    (1,             "RESERVAS INTER", "T2", "usd_m"),
-    (6,             "BASE MONETARIA", "T2", "pesos_m"), # fallback automático si ID 6 falla
-    ("calc:6/1",    "B.MON / R.IN",   "T2", "ratio"),
-    ("calc:6/4",    "B.MON / USD.OF", "T2", "pesos_m"),
+    # id_var         Etiqueta           Col   Formato
+    (None,           "RIESGO PAIS",    "T0", "bps"),     # argentinadatos.com
+    (5,              "USD A3500",      "T0", "usd4"),    # USD Mayorista A3500  <- antes ID 4
+    (30,             "CER",            "T0", "num6"),    # CER                  <- antes ID 15
+    (7,              "BADLAR",         "T0", "pct2"),    # Tasa BADLAR TNA
+    (44,             "TAMAR",          "T0", "pct2"),    # Tasa TAMAR TNA       <- antes ID 34
+    (1,              "RESERVAS INTER", "T2", "usd_m"),   # Reservas (millones USD)
+    (15,             "BASE MONETARIA", "T2", "pesos_m"), # Base Monetaria       <- antes ID 6
+    ("calc:15/1",    "B.MON / R.IN",   "T2", "ratio"),   # Base / Reservas
+    ("calc:15/5",    "B.MON / USD.OF", "T2", "pesos_m"), # Base / USD Oficial
 ]
 
 
