@@ -636,8 +636,8 @@ def generar_Visor_BCRA() -> str:
     # [FIX-4] Tabla de fallbacks para IDs que el BCRA puede discontinuar
     # Clave: id_var original → lista de palabras clave para búsqueda dinámica
     FALLBACKS_BCRA = {
-        34: ["tasa", "política", "monetaria"],   # Tasa PM — ID cambió en 2024
-        6:  ["base", "monetaria"],               # Base Monetaria
+        44: ["tamsr", "bancos", "privados"],   # Tasa Tamar - nominal anual
+        15:  ["base", "monetaria"],               # Base Monetaria
     }
 
     # ── 3. Recolectar valores ─────────────────────────────────────
