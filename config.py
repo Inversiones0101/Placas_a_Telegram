@@ -165,7 +165,7 @@ CAPTURAS_WEB = {
         "wait_selector":   "div.recharts-wrapper svg",
         "crop_selector":   "div.recharts-wrapper",
         "iframe_selector": None,
-        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026
+        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
         "zoom":            2.5,
         "delay_ms":        6000,
         "caption_key":     "al30_caption",
@@ -208,14 +208,14 @@ CAPTURAS_WEB = {
 VISOR_BCRA_ITEMS = [
     # id_var         Etiqueta           Col   Formato
     (None,           "RIESGO PAIS",    "T0", "bps"),     # argentinadatos.com
-    (5,              "USD A3500",      "T0", "usd4"),    # USD Mayorista A3500  <- antes ID 4
+    (272,            "USD A3500",      "T0", "usd4"),    # USD Mayorista A3500 (Comunicacion A 3500)
     (30,             "CER",            "T0", "num6"),    # CER                  <- antes ID 15
     (7,              "BADLAR",         "T0", "pct2"),    # Tasa BADLAR TNA
     (44,             "TAMAR",          "T0", "pct2"),    # Tasa TAMAR TNA       <- antes ID 34
     (1,              "RESERVAS INTER", "T2", "usd_m"),   # Reservas (millones USD)
     (15,             "BASE MONETARIA", "T2", "pesos_m"), # Base Monetaria       <- antes ID 6
     ("calc:15/1",    "B.MON / R.IN",   "T2", "ratio"),   # Base / Reservas
-    ("calc:15/5",    "B.MON / USD.OF", "T2", "pesos_m"), # Base / USD Oficial
+    ("calc:15/272",  "B.MON / USD.OF", "T2", "pesos_m"), # Base / USD Oficial A3500
 ]
 
 
