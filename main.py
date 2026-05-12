@@ -67,8 +67,8 @@ def es_dia_habil() -> bool:
         print(f"⚠️  No se pudo verificar feriados: {e}")
     return True
 
-def es_hora_exacta(h_obj: str, tolerancia: int = 29) -> bool:
-    """±29 min cubre el delay de GitHub Actions gratuito."""
+def es_hora_exacta(h_obj: str, tolerancia: int = 44) -> bool:
+    """±44 min cubre el delay de GitHub Actions gratuito (plan free puede demorar hasta 44min)."""
     ahora = hora_ar()
     hh, mm = map(int, h_obj.split(":"))
     obj = ahora.replace(hour=hh, minute=mm, second=0, microsecond=0)
@@ -636,8 +636,8 @@ def generar_Visor_BCRA() -> str:
     # [FIX-4] Tabla de fallbacks para IDs que el BCRA puede discontinuar
     # Clave: id_var original → lista de palabras clave para búsqueda dinámica
     FALLBACKS_BCRA = {
-        44: ["tamsr", "bancos", "privados"],   # Tasa Tamar - nominal anual
-        15:  ["base", "monetaria"],               # Base Monetaria
+        44: ["tamar", "bancos", "privados"],     # Tasa TAMAR
+        15: ["base", "monetaria"],               # Base Monetaria
     }
 
     # ── 3. Recolectar valores ─────────────────────────────────────
@@ -793,4 +793,3 @@ if __name__ == "__main__":
         print()
 
     print("✅ Script finalizado correctamente")
-  
