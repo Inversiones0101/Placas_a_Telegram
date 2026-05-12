@@ -165,7 +165,7 @@ CAPTURAS_WEB = {
         "wait_selector":   "div.recharts-wrapper svg",
         "crop_selector":   "div.recharts-wrapper",
         "iframe_selector": None,
-        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
+        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026
         "zoom":            2.5,
         "delay_ms":        6000,
         "caption_key":     "al30_caption",
