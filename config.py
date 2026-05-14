@@ -215,7 +215,7 @@ VISOR_BCRA_ITEMS = [
     (1,              "RESERVAS INTER", "T2", "usd_m"),   # Reservas (millones USD)
     (15,             "BASE MONETARIA", "T2", "pesos_m"), # Base Monetaria
     ("calc:15/1",    "B.MON / R.IN",   "T2", "pesos"),   # Dolar Convertibilidad
-    ("calc:15/272",  "B.MON / USD.OF", "T2", "usd_m"),  # Base Monetaria en USD Oficial A3500
+    ("calc:15/5",  "B.MON / USD.OF", "T2", "usd_m"),  # Base Monetaria en USD Oficial A3500
 ]
 
 
@@ -317,8 +317,8 @@ MENSAJES = {
     "usmep_caption":     "💵 Dólar MEP (USMEP) — MAE A3",
     "al30_caption":      "📈 AL30 Intradiario: {precio} ({variacion}%)",
     "gd30_caption":      "📈 GD30 Intradiario: {precio} ({variacion}%)",
-    "merval_abierto":    "🟢 Merval Abierto",
-    "merval_cerrado":    "🔴 Merval Cerrado",
+    "merval_abierto":    "🟢 Mercado Abierto",
+    "merval_cerrado":    "🔴 Mercado Cerrado",
     "visor_arg_titulo":  "🇦🇷  VISOR ARG",
     "visor_bcra_titulo": "VISOR BCRA",
     "visor_arg_tg":      "🇦🇷 Visor ARG",
