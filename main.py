@@ -597,6 +597,7 @@ def _formatear_bcra(fmt: str, valor) -> str:
         if fmt == "usd4":    return f"$ {v:,.4f}"
         if fmt == "usd_m":   return f"u$s {v:,.0f} M"
         if fmt == "pesos_m": return f"$ {v/1_000:,.0f} M"
+        if fmt == "pesos":   return f"$ {v:,.2f}"
         if fmt == "pct2":    return f"{v:.2f} %"
         if fmt == "ratio":   return f"{v:,.2f}"
         if fmt == "num6":    return f"{v:.6f}"
