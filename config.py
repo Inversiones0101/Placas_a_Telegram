@@ -73,25 +73,9 @@ VISOR_ARG_COL3 = {
 # ───────────────────────────────────────────────────────────────────
 # 3. CAPTURAS DE PANTALLA WEB — generar_Imagen_ARG()
 # ───────────────────────────────────────────────────────────────────
-# Campos:
-#   url            → página a abrir con Playwright
-#   wait_selector  → CSS a esperar antes de capturar (gráficos JS)
-#   crop_selector  → elemento CSS a recortar (en DOM principal o dentro del iframe)
-#   iframe_selector→ [NUEVO] selector del <iframe> que contiene el gráfico.
-#                    Si está definido y crop_selector no se encuentra en el DOM
-#                    principal, Playwright entra al iframe y busca adentro.
-#                    Usar cuando el gráfico es un widget externo embebido (TradingView).
-#                    Dejar None o no definir si el gráfico está en el DOM principal.
-#   zoom           → factor de ampliación
-#   delay_ms       → ms extra para que el canvas JS termine de dibujar
-#   caption_key    → clave en MENSAJES para el texto base del caption
-#   ticker_api     → símbolo a buscar en APIS["BONOS"] para precio dinámico
-#   fuente_api     → clave en APIS donde buscar el ticker (default "BONOS")
-#   activo         → True/False para activar/desactivar sin borrar
 
 CAPTURAS_WEB = {
 
-    # ── CAUCIÓN 1D — MAE A3 ───────────────────────────────────────
     "CAUCION_1D_MAE": {
         "url":           "https://marketdata.mae.com.ar/cauciones",
         "wait_selector": "div.tv-lightweight-charts",
@@ -104,7 +88,6 @@ CAPTURAS_WEB = {
         "activo":        True,
     },
 
-    # ── DÓLAR MEP (USMEP) — MAE A3 ────────────────────────────────
     "USMEP_MAE": {
         "url":           "https://marketdata.mae.com.ar/titulos/FOR/USMEP?plazo=000&segmento=M&moneda=T",
         "wait_selector": "div.grid.grid-cols-1.gap-3.mt-2",
@@ -117,7 +100,6 @@ CAPTURAS_WEB = {
         "activo":        True,
     },
 
-    # ── AL30 Intradiario — IOL ────────────────────────────────────
     "AL30_IOL": {
         "url":           "https://iol.invertironline.com/titulo/cotizacion/BCBA/AL30/BONO-REP.-ARGENTINA-USD-STEP-UP-2030/",
         "wait_selector": "#graficoIntradiario svg.highcharts-root",
@@ -130,7 +112,6 @@ CAPTURAS_WEB = {
         "activo":        False,
     },
 
-    # ── GD30 Intradiario — IOL ────────────────────────────────────
     "GD30_IOL": {
         "url":           "https://iol.invertironline.com/titulo/cotizacion/BCBA/GD30/BONOS-REP.-ARG.-U-S-STEP-UP-V.09-07-30/",
         "wait_selector": ".highcharts-container svg.highcharts-root",
@@ -143,113 +124,75 @@ CAPTURAS_WEB = {
         "activo":        False,
     },
 
-    # ── AL30 Intradiario — RAVA ───────────────────────────────────
-    # [FIX-3 v2] Rava renderiza el gráfico intradiario como elemento nativo
-    # (NO es un iframe de TradingView). El gráfico está en la esquina
-    # superior derecha de la página, por eso usamos crop_box con
-    # coordenadas relativas al viewport (fracción 0.0–1.0).
-    #
-    # Ajuste de coordenadas si el recorte no queda bien:
-    #   "x" → desplazamiento horizontal desde la izquierda (0=izq, 1=der)
-    #   "y" → desplazamiento vertical desde arriba (0=arriba, 1=abajo)
-    #   "w" → ancho del recorte como fracción del viewport
-    #   "h" → alto del recorte como fracción del viewport
-    #
-    # Con viewport 1280×900:
-    #   x=0.49 → empieza en pixel 627
-    #   y=0.10 → empieza en pixel 90
-    #   w=0.38 → ancho de 486px
-    #   h=0.55 → alto de 495px
     "AL30_RAVA": {
         "url":             "https://www.rava.com/perfil/AL30",
         "wait_selector":   "div.recharts-wrapper svg",
         "crop_selector":   "div.recharts-wrapper",
         "iframe_selector": None,
-        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
+        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},
         "zoom":            2.5,
         "delay_ms":        6000,
         "caption_key":     "al30_caption",
         "ticker_api":      "AL30",
-        "activo":          True,       
+        "activo":          True,
     },
-    
+
     "GD30_RAVA": {
         "url":             "https://www.rava.com/perfil/GD30",
         "wait_selector":   "div.recharts-wrapper svg",
         "crop_selector":   "div.recharts-wrapper",
         "iframe_selector": None,
-        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
+        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},
         "zoom":            2.5,
         "delay_ms":        6000,
         "caption_key":     "gd30_caption",
         "ticker_api":      "GD30",
         "activo":          True,
     },
-    
-    # ── Agregar más capturas aquí ──────────────────────────────────
-    # "GD30_RAVA": {
-    #     "url":             "https://www.rava.com/perfil/GD30",
-    #     "wait_selector":   "div.recharts-wrapper svg",
-    #     "crop_selector":   "div.recharts-wrapper",
-    #     "iframe_selector": None,
-    #     "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
-    #     "zoom":            2.5,
-    #     "delay_ms":        6000,
-    #     "caption_key":     "gd30_caption",
-    #     "ticker_api":      "GD30",
-    #     "activo":          True,
-    # },
-    
 }
 
 
 # ───────────────────────────────────────────────────────────────────
 # 4. VISOR BCRA — API oficial BCRA v4.0
-#    Endpoint: https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{id}
-#    Docs:     https://principales-variables.bcra.apidocs.ar/
-# ───────────────────────────────────────────────────────────────────
-# IDs v4.0 confirmados operativos (verificado mayo 2026):
-#   1   → Reservas Internacionales (millones USD)        T-2
-#   5   → USD Mayorista A3500 (Comunicacion A 3500)      T+0
-#   7   → Tasa BADLAR bancos privados TNA (%)            T+0
-#   15  → Base Monetaria Total (millones $)              T-2
-#   30  → CER (Coef. Estabilizacion de Referencia)       T+0
-#   44  → Tasa TAMAR bancos privados TNA (%)             T+0
 #
-# id_var = None        -> Riesgo Pais (argentinadatos.com)
-# id_var = int         -> variable directa via bcra-connector
-# id_var = "calc:X/Y"  -> ratio calculado entre ID X e ID Y
+# CAMBIO v2: se eliminó la columna "col" (T0/T2).
+# Ahora cada fila muestra la FECHA REAL del dato según la API
+# y el VALOR correspondiente. Sin distinción T0/T2 en el diseño.
+#
+# Formato de cada item: (id_var, etiqueta, formato)
+#   id_var = None        → Riesgo País (argentinadatos.com)
+#   id_var = int         → variable directa via bcra-connector
+#   id_var = "calc:X/Y"  → ratio calculado entre ID X e ID Y
+#            Para los calc, la fecha mostrada es la del numerador (X)
+# ───────────────────────────────────────────────────────────────────
 
 VISOR_BCRA_ITEMS = [
-    # id_var         Etiqueta           Col   Formato
-    (None,           "RIESGO PAIS",    "T0", "bps"),     # argentinadatos.com
-    (5,              "USD A3500",      "T0", "pesos"),   # USD Mayorista A3500
-    (30,             "CER",            "T0", "num6"),    # CER
-    (7,              "BADLAR",         "T2", "pct2"),    # Tasa BADLAR TNA (dato de 48hs)
-    (44,             "TAMAR",          "T2", "pct2"),    # Tasa TAMAR TNA  (dato de 48hs)
-    (1,              "RESERVAS INTER", "T2", "usd_m"),   # Reservas (millones USD)
-    (15,             "BASE MONETARIA", "T2", "pesos_m"), # Base Monetaria
-    ("calc:15/1",    "B.MON / R.IN",   "T2", "pesos"),   # Dolar Convertibilidad
-    ("calc:15/5",  "B.MON / USD.OF", "T2", "usd_m"),  # Base Monetaria en USD Oficial A3500
+    # id_var          Etiqueta           Formato
+    (None,            "RIESGO PAIS",     "bps"),      # argentinadatos.com
+    (5,               "USD A3500",       "pesos"),    # USD Mayorista A3500
+    (30,              "CER",             "num6"),     # CER
+    (7,               "BADLAR",          "pct2"),     # Tasa BADLAR TNA
+    (44,              "TAMAR",           "pct2"),     # Tasa TAMAR TNA
+    (1,               "RESERVAS INTER",  "usd_m"),    # Reservas (millones USD)
+    (15,              "BASE MONETARIA",  "pesos_m"),  # Base Monetaria
+    ("calc:15/1",     "B.MON / R.IN",    "pesos"),    # Dólar Convertibilidad
+    ("calc:15/5",     "B.MON / USD.OF",  "usd_m"),    # Base Monetaria en USD Oficial
 ]
 
 
 # ───────────────────────────────────────────────────────────────────
 # 5. HORARIOS DE EJECUCIÓN (hora Argentina)
 # ───────────────────────────────────────────────────────────────────
-# Tolerancia de detección: ±29 minutos (cubre el delay de GitHub Actions)
-# El control de doble envío (estado_envios.csv) evita reenvíos si dos
-# ejecuciones se solapan dentro de la ventana de tolerancia.
 
 HORARIOS = {
-    "imagen_1":      "12:00",   # generar_Imagen_ARG → "Merval Abierto"
-    "visor_arg_1":   "13:00",   # Visor ARG
-    "imagen_2":      "14:00",   # generar_Imagen_ARG → "Merval Abierto"
-    "visor_arg_2":   "15:00",   # Visor ARG
-    "imagen_3":      "16:00",   # generar_Imagen_ARG → "Merval Abierto"
-    "imagen_cierre": "17:00",   # generar_Imagen_ARG → "Merval Cerrado"
-    "visor_arg_3":   "17:00",   # Visor ARG final
-    "visor_bcra":    "17:30",   # Visor BCRA (único envío del día)
+    "imagen_1":      "12:00",
+    "visor_arg_1":   "13:00",
+    "imagen_2":      "14:00",
+    "visor_arg_2":   "15:00",
+    "imagen_3":      "16:00",
+    "imagen_cierre": "17:00",
+    "visor_arg_3":   "17:00",
+    "visor_bcra":    "17:30",
 }
 
 
@@ -258,8 +201,8 @@ HORARIOS = {
 # ───────────────────────────────────────────────────────────────────
 
 ARCHIVOS = {
-    "estado_envios": "estado_envios.csv",
-    "visor_arg_img": "visor_arg.png",
+    "estado_envios":  "estado_envios.csv",
+    "visor_arg_img":  "visor_arg.png",
     "visor_bcra_img": "visor_bcra.png",
 }
 
@@ -311,8 +254,8 @@ DISEÑO_VISOR_BCRA = {
     "header_text": "#ffffff",
     "col_header":  "#1e3a5f",
     "label_color": "#1e3a5f",
-    "value_t0":    "#1e3a5f",
-    "value_t2":    "#1e40af",
+    "value_color": "#1e40af",    # color único para VALOR (antes value_t0 / value_t2)
+    "date_color":  "#374151",    # color para la columna FECHA
     "divider":     "#93c5fd",
     "font_header": 22,
     "font_sub":    13,
