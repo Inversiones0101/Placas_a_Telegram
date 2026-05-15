@@ -127,7 +127,7 @@ CAPTURAS_WEB = {
         "delay_ms":      5000,
         "caption_key":   "al30_caption",
         "ticker_api":    "AL30",
-        "activo":        True,
+        "activo":        False,
     },
 
     # ── GD30 Intradiario — IOL ────────────────────────────────────
@@ -140,7 +140,7 @@ CAPTURAS_WEB = {
         "delay_ms":      5000,
         "caption_key":   "gd30_caption",
         "ticker_api":    "GD30",
-        "activo":        True,
+        "activo":        False,
     },
 
     # ── AL30 Intradiario — RAVA ───────────────────────────────────
@@ -170,21 +170,36 @@ CAPTURAS_WEB = {
         "delay_ms":        6000,
         "caption_key":     "al30_caption",
         "ticker_api":      "AL30",
+        "activo":          True,       
+    },
+    
+    "GD30_RAVA": {
+        "url":             "https://www.rava.com/perfil/GD30",
+        "wait_selector":   "div.recharts-wrapper svg",
+        "crop_selector":   "div.recharts-wrapper",
+        "iframe_selector": None,
+        "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
+        "zoom":            2.5,
+        "delay_ms":        6000,
+        "caption_key":     "gd30_caption",
+        "ticker_api":      "GD30",
         "activo":          True,
     },
-
+    
     # ── Agregar más capturas aquí ──────────────────────────────────
     # "GD30_RAVA": {
-    #     "url":            "https://www.rava.com/perfil/GD30",
-    #     "wait_selector":  "iframe[src*='tradingview.com']",
-    #     "crop_selector":  ".chart-container",
-    #     "iframe_selector": "iframe[src*='tradingview.com']",
-    #     "zoom":           2.0,
-    #     "delay_ms":       10000,
-    #     "caption_key":    "gd30_caption",
-    #     "ticker_api":     "GD30",
-    #     "activo":         False,
+    #     "url":             "https://www.rava.com/perfil/GD30",
+    #     "wait_selector":   "div.recharts-wrapper svg",
+    #     "crop_selector":   "div.recharts-wrapper",
+    #     "iframe_selector": None,
+    #     "crop_box":        {"x": 0.62, "y": 0.09, "w": 0.35, "h": 0.42},  # calibrado 11/05/2026,
+    #     "zoom":            2.5,
+    #     "delay_ms":        6000,
+    #     "caption_key":     "gd30_caption",
+    #     "ticker_api":      "GD30",
+    #     "activo":          True,
     # },
+    
 }
 
 
