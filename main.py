@@ -228,9 +228,33 @@ def generar_Visor_RF_ARG() -> str:
         for symbol, nombre, fuente in sec["items"]:
             if fuente not in cache:
                 cache[fuente] = _fetch_api(fuente)
-            item   = cache[fuente].get(symbol)
-            precio = float(item["c"])          if item and item.get("c")          is not None else None
-            pct    = float(item["pct_change"]) if item and item.get("pct_change") is not None else None
+            item = cache[fuente].get(symbol)
+
+            if fuente == "MEP":
+                # La API MEP no tiene campo "c" ni "pct_change".
+                # El tipo de cambio implícito se calcula: ars_bid / usd_ask
+                # Variación: ((mark_ars/mark_usd) / (close_ars/close_usd) - 1) * 100
+                # Si faltan campos, queda como None → muestra "—"
+                precio = None
+                pct    = None
+                if item:
+                    ars_bid  = item.get("ars_bid")
+                    usd_ask  = item.get("usd_ask")
+                    ars_mark = item.get("ars_bid")   # proxy: bid ARS
+                    usd_mark = item.get("usd_ask")   # proxy: ask USD
+                    ars_cls  = item.get("ars_ask")   # cierre ARS (aprox)
+                    usd_cls  = item.get("usd_bid")   # cierre USD (aprox)
+                    if ars_bid and usd_ask and usd_ask != 0:
+                        precio = ars_bid / usd_ask
+                    if ars_cls and usd_cls and usd_cls != 0:
+                        mep_close = ars_cls / usd_cls
+                        if precio and mep_close and mep_close != 0:
+                            pct = (precio / mep_close - 1) * 100
+            else:
+                # BONOS y LETRAS: campo estándar "c" y "pct_change"
+                precio = float(item["c"])          if item and item.get("c")          is not None else None
+                pct    = float(item["pct_change"]) if item and item.get("pct_change") is not None else None
+
             filas.append({
                 "symbol": symbol,
                 "nombre": nombre,
@@ -240,7 +264,7 @@ def generar_Visor_RF_ARG() -> str:
             })
             p_str = _fmt_precio(precio)
             v_str = f"{pct:+.2f}%" if pct is not None else "—"
-            print(f"  [{sec['titulo'][:15]}] {symbol}: {p_str} {v_str}")
+            print(f"  [{sec['titulo'][:15]}] {symbol} ({fuente}): {p_str} {v_str}")
         secciones_datos.append({"titulo": sec["titulo"], "filas": filas})
 
     # ── 3. Calcular dimensiones del canvas ───────────────────────
