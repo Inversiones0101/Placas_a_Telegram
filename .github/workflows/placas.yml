@@ -1,74 +1,63 @@
 name: Placas a Telegram
 on:
   schedule:
-    # Horarios fijos en UTC (AR = UTC-3)
-    # 12:00 AR = 15:00 UTC
-    # 13:00 AR = 16:00 UTC
-    # 14:00 AR = 17:00 UTC
-    # 15:00 AR = 18:00 UTC
-    # 16:00 AR = 19:00 UTC
-    # 17:00 AR = 20:00 UTC
-    # 17:30 AR = 20:30 UTC
-    - cron: '0 15 * * 1-5'     # 12:00 AR — imagen web
-    - cron: '0 16 * * 1-5'     # 13:00 AR — visor ARG
-    - cron: '0 17 * * 1-5'     # 14:00 AR — imagen web
-    - cron: '0 18 * * 1-5'     # 15:00 AR — visor ARG
-    - cron: '0 19 * * 1-5'     # 16:00 AR — imagen web
-    - cron: '0 20 * * 1-5'     # 17:00 AR — imagen cierre + visor ARG
-    - cron: '30 20 * * 1-5'    # 17:30 AR — visor BCRA
-  workflow_dispatch:   # ejecución manual para pruebas
+    # Horarios en UTC (AR = UTC-3)
+    # 12:00 AR = 15:00 UTC  → visor_rf_1
+    # 13:00 AR = 16:00 UTC  → visor_arg_1
+    # 14:00 AR = 17:00 UTC  → visor_rf_2
+    # 15:00 AR = 18:00 UTC  → visor_arg_2
+    # 16:00 AR = 19:00 UTC  → visor_rf_3
+    # 17:00 AR = 20:00 UTC  → visor_rf_4 + visor_arg_3
+    # 17:30 AR = 20:30 UTC  → visor_bcra
+    - cron: '0 15 * * 1-5'
+    - cron: '0 16 * * 1-5'
+    - cron: '0 17 * * 1-5'
+    - cron: '0 18 * * 1-5'
+    - cron: '0 19 * * 1-5'
+    - cron: '0 20 * * 1-5'
+    - cron: '30 20 * * 1-5'
+  workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   placas:
     runs-on: ubuntu-latest
-    timeout-minutes: 15   # [AJUSTE] subido de 10 a 15 min
-                          # A las 17:00 AR se ejecutan hasta 3 tareas juntas:
-                          # imagen_cierre (5 capturas Playwright ~4min) +
-                          # visor_arg_3 (~30s) + eventualmente visor_bcra (~30s)
-                          # Con 10min el job podía cortarse en casos lentos.
+    timeout-minutes: 5   # Sin Playwright: cada run dura ~1 min
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      # ── Cache de Playwright (Chromium) ─────────────────────────
-      # Evita descargar Chromium (~100MB) en cada ejecución
-      - name: Cache Playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-      - name: Instalar dependencias Python
+
+      - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Instalar Playwright + Chromium
-        run: |
-          playwright install chromium --with-deps
+
       - name: Ejecutar Placas
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TZ: "America/Argentina/Buenos_Aires"
         run: python main.py
-      # ── Guardar estado con reintento ante conflictos de push ───
-      # El error "rejected (fetch first)" ocurre cuando dos workflows
-      # corren simultáneamente. El pull --rebase lo resuelve.
+
       - name: Guardar estado en repo
         run: |
           git config --global user.name  "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           [ -f estado_envios.csv ] && git add estado_envios.csv
           [ -f visor_arg.png     ] && git add visor_arg.png
+          [ -f visor_rf.png      ] && git add visor_rf.png
           [ -f visor_bcra.png    ] && git add visor_bcra.png
-          git diff --staged --quiet && echo "Sin cambios nuevos" || git commit -m "Bot: placas [skip ci]"
+          git diff --staged --quiet && echo "Sin cambios" || git commit -m "Bot: placas [skip ci]"
           git pull --rebase origin main || true
           git push || echo "Sin cambios que pushear"
