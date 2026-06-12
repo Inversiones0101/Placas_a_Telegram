@@ -2,6 +2,4 @@ requests
 pandas
 pillow
 pytz
-playwright
-urllib3
 bcra-connector
