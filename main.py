@@ -3,37 +3,27 @@ main.py — Placas_a_Telegram
 Inversiones & Algoritmos · GitHub Actions
 
 Funciones:
-  1. generar_Imagen_ARG()  — Captura de pantalla web con Playwright → Telegram
-  2. generar_Visor_ARG()   — Tarjeta PNG con precios ADRs/Stocks/CEDEARs → Telegram
-  3. generar_Visor_BCRA()  — Tarjeta PNG con datos BCRA → Telegram
+  1. generar_Visor_RF_ARG()  — Tarjeta PNG Renta Fija (Bonos/Letras/MEP) → Telegram
+  2. generar_Visor_ARG()     — Tarjeta PNG ADRs/Stocks/CEDEARs → Telegram
+  3. generar_Visor_BCRA()    — Tarjeta PNG datos BCRA → Telegram
 
-Arquitectura: cron en horarios fijos → cada ejecución dura ~40 seg → sale.
-Sin time.sleep() internos. Control de doble envío via estado_envios.csv
-
-CAMBIOS v3 (Visor BCRA):
-  · Columnas renombradas: T+0(Hoy) → FECHA  /  T-2(48hs) → VALOR
-  · Cada fila muestra la FECHA REAL del dato según bcra-connector (ultFechaInformada)
-  · El Riesgo País muestra la fecha que devuelve argentinadatos.com
-  · Para items calc:X/Y la fecha corresponde al numerador (X)
-  · DISEÑO_VISOR_BCRA: nuevas claves value_color y date_color (ver config.py)
-
-FIXES anteriores:
-  [FIX-1] Visor ARG y BCRA llaman tg_foto() después de generar el PNG
-  [FIX-2] Control ya_se_envio()/marcar_enviado() integrado en el flujo principal
-  [FIX-3] AL30_RAVA: usa crop_box para recorte por coordenadas de viewport
-  [FIX-4] BCRA: búsqueda dinámica de IDs + fallback para variables discontinuadas
+Arquitectura: cron en horarios fijos → cada ejecución dura ~1 min → sale.
+Sin Playwright. Control de doble envío via estado_envios.csv.
 """
 
-import os, sys, io, requests, textwrap, time
+import os, sys, requests, time
 import pandas as pd
 from datetime import datetime, date
-from pathlib import Path
 import pytz
 
 from config import (
-    APIS, VISOR_ARG_COL1, VISOR_ARG_COL2, VISOR_ARG_COL3,
-    CAPTURAS_WEB, VISOR_BCRA_ITEMS,
-    HORARIOS, ARCHIVOS, DISEÑO_VISOR_ARG, DISEÑO_VISOR_BCRA, MENSAJES,
+    APIS,
+    VISOR_ARG_COL1, VISOR_ARG_COL2, VISOR_ARG_COL3,
+    VISOR_RF_SECCIONES,
+    VISOR_BCRA_ITEMS,
+    HORARIOS, ARCHIVOS,
+    DISEÑO_VISOR_ARG, DISEÑO_VISOR_RF, DISEÑO_VISOR_BCRA,
+    MENSAJES,
 )
 
 from PIL import Image, ImageDraw, ImageFont
@@ -60,24 +50,22 @@ def hhmm(dt=None) -> str:
 def es_dia_habil() -> bool:
     hoy = hora_ar()
     if hoy.weekday() >= 5:
-        print(f"⏸️  Fin de semana. Sin operación.")
+        print("⏸️  Fin de semana. Sin operación.")
         return False
     try:
-        año = hoy.year
-        resp = requests.get(f"{APIS['FERIADOS']}{año}", timeout=8)
+        resp   = requests.get(f"{APIS['FERIADOS']}{hoy.year}", timeout=8)
         fechas = [f["fecha"] for f in resp.json() if "fecha" in f]
         if hoy.strftime("%Y-%m-%d") in fechas:
-            print(f"🗓️  Feriado hoy. Sin operación.")
+            print("🗓️  Feriado hoy. Sin operación.")
             return False
     except Exception as e:
         print(f"⚠️  No se pudo verificar feriados: {e}")
     return True
 
 def es_hora_exacta(h_obj: str, tolerancia: int = 44) -> bool:
-    """±44 min cubre el delay de GitHub Actions (plan free)."""
-    ahora = hora_ar()
+    ahora  = hora_ar()
     hh, mm = map(int, h_obj.split(":"))
-    obj = ahora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    obj    = ahora.replace(hour=hh, minute=mm, second=0, microsecond=0)
     return abs((ahora - obj).total_seconds() / 60) <= tolerancia
 
 
@@ -101,12 +89,9 @@ def _leer_estado_csv(path: str) -> pd.DataFrame:
         return pd.DataFrame(columns=cols)
 
 def ya_se_envio(clave: str) -> bool:
-    path = ARCHIVOS["estado_envios"]
-    df   = _leer_estado_csv(path)
-    if df.empty:
-        return False
+    df  = _leer_estado_csv(ARCHIVOS["estado_envios"])
     hoy = hora_ar().strftime("%Y-%m-%d")
-    return ((df["fecha"] == hoy) & (df["clave"] == clave)).any()
+    return not df.empty and ((df["fecha"] == hoy) & (df["clave"] == clave)).any()
 
 def marcar_enviado(clave: str):
     path  = ARCHIVOS["estado_envios"]
@@ -139,40 +124,29 @@ def tg_foto(img_path: str, caption: str):
             r = requests.post(url,
                 data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "Markdown"},
                 files={"photo": f}, timeout=30)
-        print(f"{'📨' if r.status_code==200 else '⚠️ '} Telegram foto [{r.status_code}]")
+        print(f"{'📨' if r.status_code == 200 else '⚠️ '} Telegram foto [{r.status_code}]")
         if r.status_code != 200:
             print(r.text[:300])
     except Exception as e:
         print(f"⚠️  tg_foto: {e}")
 
-def tg_texto(msg: str):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    try:
-        r = requests.post(url,
-            json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"},
-            timeout=20)
-        print(f"{'📨' if r.status_code==200 else '⚠️ '} Telegram texto [{r.status_code}]")
-    except Exception as e:
-        print(f"⚠️  tg_texto: {e}")
-
 
 # ═══════════════════════════════════════════════════════════════════
-# SECCIÓN 4 — CAPTURA DE PANTALLA WEB (Playwright)
+# SECCIÓN 4 — UTILIDADES GRÁFICAS (Pillow)
 # ═══════════════════════════════════════════════════════════════════
 
-def _get_font(size: int, bold: bool = False):
-    """Busca fuentes del sistema. Fallback a PIL default."""
-    candidates_bold = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-    ]
-    candidates_reg = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-    ]
-    candidates = candidates_bold if bold else candidates_reg
+def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    candidates = (
+        [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ] if bold else [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]
+    )
     for c in candidates:
         if os.path.exists(c):
             try:
@@ -181,9 +155,7 @@ def _get_font(size: int, bold: bool = False):
                 pass
     return ImageFont.load_default()
 
-
 def fetch_with_retry(url: str, retries: int = 3, timeout: int = 10):
-    """Fetch con retry exponencial. Backoff: 2s, 4s, 8s."""
     for i in range(retries):
         try:
             r = requests.get(url, timeout=timeout)
@@ -192,189 +164,12 @@ def fetch_with_retry(url: str, retries: int = 3, timeout: int = 10):
         except Exception as e:
             if i == retries - 1:
                 raise
-            wait_time = 2 ** i
-            print(f"  ⚠️  Reintentando en {wait_time}s... ({i+1}/{retries})")
-            time.sleep(wait_time)
-
-
-def _capturar_elemento(page, cfg: dict) -> bytes | None:
-    """
-    Estrategia de captura en 4 capas de fallback:
-    1. crop_selector en DOM principal
-    2. iframe_selector + crop_selector
-    3. crop_box por coordenadas de viewport (fracción 0.0–1.0)
-    4. Fallback: screenshot completo del viewport
-    """
-    crop_selector   = cfg.get("crop_selector")
-    iframe_selector = cfg.get("iframe_selector")
-    crop_box        = cfg.get("crop_box")
-
-    if crop_selector:
-        elemento = page.query_selector(crop_selector)
-        if elemento:
-            try:
-                return elemento.screenshot()
-            except Exception as e:
-                print(f"    ⚠️  screenshot() en DOM principal falló: {e}")
-
-    if iframe_selector and crop_selector:
-        try:
-            frame = page.frame_locator(iframe_selector)
-            el_en_frame = frame.locator(crop_selector).first
-            el_en_frame.wait_for(timeout=8000)
-            return el_en_frame.screenshot()
-        except Exception as e:
-            print(f"    ⚠️  screenshot() en iframe '{iframe_selector}' falló: {e}")
-
-    if crop_box:
-        try:
-            vp   = page.viewport_size
-            W, H = vp["width"], vp["height"]
-            clip = {
-                "x":      int(crop_box["x"] * W),
-                "y":      int(crop_box["y"] * H),
-                "width":  int(crop_box["w"] * W),
-                "height": int(crop_box["h"] * H),
-            }
-            print(f"    📐 Recorte por coordenadas: {clip}")
-            return page.screenshot(full_page=False, clip=clip)
-        except Exception as e:
-            print(f"    ⚠️  crop_box falló: {e}")
-
-    print(f"    ⚠️  Sin selector válido. Captura de viewport completo.")
-    return page.screenshot(full_page=False)
-
-
-def _recortar_y_redimensionar(img: Image.Image, zoom: float,
-                               max_lado: int = 4096) -> Image.Image:
-    if zoom != 1.0:
-        img = img.resize(
-            (int(img.width * zoom), int(img.height * zoom)),
-            Image.LANCZOS
-        )
-    if img.width > max_lado or img.height > max_lado:
-        img = img.crop((0, 0, min(img.width, max_lado), min(img.height, max_lado)))
-        print(f"    ✂️  Imagen recortada a {img.width}×{img.height}px (límite Telegram)")
-    return img
-
-
-def generar_Imagen_ARG(estado: str = "Abierto"):
-    """
-    Visita cada URL activa en CAPTURAS_WEB con Playwright,
-    captura el elemento CSS indicado y envía cada imagen a Telegram.
-    """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        print("⚠️  Playwright no instalado. Saltando capturas web.")
-        return
-
-    ts           = hhmm()
-    emoji        = "🟢" if estado == "Abierto" else "🔴"
-    texto_estado = MENSAJES["merval_abierto"] if estado == "Abierto" else MENSAJES["merval_cerrado"]
-
-    activas = {k: v for k, v in CAPTURAS_WEB.items() if v.get("activo", True)}
-    if not activas:
-        print("ℹ️  Sin capturas activas.")
-        return
-
-    print(f"📸 Capturas web ({len(activas)}) — {ts}")
-
-    datos_bonos = {}
-    tickers_necesarios = {cfg["ticker_api"] for cfg in activas.values()
-                          if cfg.get("ticker_api")}
-    if tickers_necesarios:
-        try:
-            fuentes_unicas = set()
-            for cfg in activas.values():
-                if cfg.get("ticker_api"):
-                    fuentes_unicas.add(cfg.get("fuente_api", "BONOS"))
-            for fuente in fuentes_unicas:
-                print(f"  💹 Cargando precios desde APIS['{fuente}']...")
-                data = fetch_with_retry(APIS[fuente], retries=3, timeout=10)
-                datos_bonos.update({item["symbol"]: item for item in data})
-            print(f"  ✅ Precios cargados: {', '.join(tickers_necesarios)}")
-        except Exception as e:
-            print(f"  ⚠️  No se pudieron cargar precios de bonos: {e}")
-
-    imgs_capturadas: dict[str, Image.Image] = {}
-
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        ctx     = browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            device_scale_factor=2,
-        )
-        page = ctx.new_page()
-
-        for nombre, cfg in activas.items():
-            try:
-                print(f"  → {nombre}")
-                page.goto(cfg["url"], wait_until="networkidle", timeout=35000)
-
-                if cfg.get("wait_selector"):
-                    try:
-                        page.wait_for_selector(cfg["wait_selector"], timeout=15000)
-                    except Exception:
-                        print(f"    ⚠️  wait_selector no encontrado, continuando...")
-
-                if cfg.get("delay_ms", 0) > 0:
-                    page.wait_for_timeout(cfg["delay_ms"])
-
-                img_bytes = _capturar_elemento(page, cfg)
-                if img_bytes is None:
-                    print(f"    ⚠️  No se pudo capturar {nombre}. Saltando.")
-                    continue
-
-                img  = Image.open(io.BytesIO(img_bytes))
-                zoom = cfg.get("zoom", 1.0)
-                img  = _recortar_y_redimensionar(img, zoom, max_lado=4096)
-
-                imgs_capturadas[nombre] = img
-                print(f"    ✅ Capturado {img.width}×{img.height}px")
-
-            except Exception as e:
-                print(f"    ⚠️  Error en {nombre}: {e}")
-
-        browser.close()
-
-    for nombre, cfg in activas.items():
-        if nombre not in imgs_capturadas:
-            print(f"    ⚠️  {nombre}: no capturado, omitiendo envío.")
-            continue
-
-        tmp_path = f"captura_{nombre.lower()}.png"
-        imgs_capturadas[nombre].save(tmp_path, "PNG", optimize=True)
-
-        caption_key = cfg.get("caption_key")
-        texto_base  = MENSAJES.get(caption_key, cfg.get("caption", nombre))
-
-        ticker = cfg.get("ticker_api")
-        if ticker and ticker in datos_bonos:
-            d          = datos_bonos[ticker]
-            precio_str = f"{d['c']:,.2f}"
-            var_str    = f"{d['pct_change']:+.2f}"
-            texto_base = (texto_base
-                          .replace("{precio}", f"${precio_str}")
-                          .replace("{variacion}", var_str))
-            print(f"    💹 {ticker}: ${precio_str} ({var_str}%)")
-        elif ticker:
-            texto_base = (texto_base
-                          .replace(": ${precio} ({variacion}%)", "")
-                          .replace("${precio}", "—")
-                          .replace("{precio}", "—")
-                          .replace("{variacion}", "—"))
-
-        caption = f"{emoji} *{texto_estado}* — {ts} AR\n{texto_base}"
-        tg_foto(tmp_path, caption)
-        print(f"    📨 Enviado: {nombre}")
-
-
-# ═══════════════════════════════════════════════════════════════════
-# SECCIÓN 5 — VISOR ARG (Tarjeta PNG con Pillow)
-# ═══════════════════════════════════════════════════════════════════
+            wait = 2 ** i
+            print(f"  ⚠️  Reintentando en {wait}s... ({i+1}/{retries})")
+            time.sleep(wait)
 
 def _fetch_api(clave: str) -> dict:
+    """Descarga la API indicada y devuelve dict {symbol: item}."""
     try:
         data = fetch_with_retry(APIS[clave], retries=3, timeout=10)
         return {item["symbol"]: item for item in data}
@@ -382,31 +177,193 @@ def _fetch_api(clave: str) -> dict:
         print(f"⚠️  Error API {clave}: {e}")
         return {}
 
+def _color_var(pct, D: dict) -> str:
+    if pct is None: return D["neutral"]
+    if pct > 0:     return D["up"]
+    if pct < 0:     return D["down"]
+    return D["neutral"]
+
+def _flecha(pct) -> str:
+    if pct is None: return "—"
+    if pct > 0:     return "▲"
+    if pct < 0:     return "▼"
+    return "▬"
+
+def _fmt_precio(precio) -> str:
+    if precio is None:  return "—"
+    if precio >= 1000:  return f"${precio:,.0f}"
+    if precio >= 10:    return f"${precio:,.2f}"
+    return f"${precio:.3f}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECCIÓN 5 — VISOR RENTA FIJA ARG
+# ═══════════════════════════════════════════════════════════════════
+
+def generar_Visor_RF_ARG() -> str:
+    """
+    Genera tarjeta PNG del Visor Renta Fija ARG con secciones
+    (Soberanos y Letras). Retorna el path del PNG.
+
+    Fuentes de datos (config.py → APIS):
+      "BONOS"  → https://data912.com/live/arg_bonds
+      "LETRAS" → https://data912.com/live/arg_notes
+      "MEP"    → https://data912.com/live/mep
+
+    Los items MEP (tipo cambio implícito) se muestran en dorado.
+    """
+    D   = DISEÑO_VISOR_RF
+    ts  = hhmm()
+    hoy = hora_ar().strftime("%d/%m/%Y")
+
+    print(f"📊 Generando Visor Renta Fija ARG ({ts})...")
+
+    # ── 1. Descargar APIs (una vez por fuente) ───────────────────
+    cache: dict[str, dict] = {}
+
+    # ── 2. Recolectar datos por sección ─────────────────────────
+    secciones_datos = []
+    for sec in VISOR_RF_SECCIONES:
+        filas = []
+        for symbol, nombre, fuente in sec["items"]:
+            if fuente not in cache:
+                cache[fuente] = _fetch_api(fuente)
+            item   = cache[fuente].get(symbol)
+            precio = float(item["c"])          if item and item.get("c")          is not None else None
+            pct    = float(item["pct_change"]) if item and item.get("pct_change") is not None else None
+            filas.append({
+                "symbol": symbol,
+                "nombre": nombre,
+                "fuente": fuente,
+                "precio": precio,
+                "pct":    pct,
+            })
+            p_str = _fmt_precio(precio)
+            v_str = f"{pct:+.2f}%" if pct is not None else "—"
+            print(f"  [{sec['titulo'][:15]}] {symbol}: {p_str} {v_str}")
+        secciones_datos.append({"titulo": sec["titulo"], "filas": filas})
+
+    # ── 3. Calcular dimensiones del canvas ───────────────────────
+    COLS    = D["cols"]
+    CARD_W  = D["card_w"]
+    CARD_H  = D["card_h"]
+    GAP     = D["gap"]
+    MG      = D["margin"]
+    COL_GAP = D["col_gap"]
+    SEC_H   = D["sec_h"]
+    HDR_H   = 56
+
+    total_filas_tarjetas = sum(
+        (len(s["filas"]) + COLS - 1) // COLS
+        for s in secciones_datos
+    )
+    n_secs   = len(secciones_datos)
+    canvas_w = MG * 2 + CARD_W * COLS + COL_GAP * (COLS - 1)
+    canvas_h = (MG + HDR_H + GAP
+                + n_secs * (SEC_H + GAP)
+                + total_filas_tarjetas * (CARD_H + GAP)
+                + MG)
+
+    img  = Image.new("RGB", (canvas_w, canvas_h), D["bg_canvas"])
+    draw = ImageDraw.Draw(img)
+
+    # Fuentes
+    f_hdr    = _get_font(D["font_header"], bold=True)
+    f_sub    = _get_font(D["font_sub"])
+    f_sec    = _get_font(D["font_sec"], bold=True)
+    f_ticker = _get_font(D["font_ticker"], bold=True)
+    f_nombre = _get_font(D["font_nombre"])
+    f_precio = _get_font(D["font_precio"], bold=True)
+    f_pct    = _get_font(D["font_pct"])
+
+    # ── 4. Header principal ──────────────────────────────────────
+    draw.rounded_rectangle(
+        [MG, MG, canvas_w - MG, MG + HDR_H],
+        radius=8, fill=D["bg_header"], outline=D["border"]
+    )
+    draw.text((MG + 14, MG + 8),
+              MENSAJES["visor_rf_titulo"], font=f_hdr, fill=D["accent"])
+    draw.text((MG + 14, MG + 34),
+              f"{ts} AR  ·  {hoy}  ·  {MENSAJES['fuente_datos']}",
+              font=f_sub, fill=D["text_muted"])
+
+    # ── 5. Secciones y cards ─────────────────────────────────────
+    y = MG + HDR_H + GAP
+
+    for sec_data in secciones_datos:
+        filas  = sec_data["filas"]
+        n_rows = (len(filas) + COLS - 1) // COLS
+
+        # Cabecera de sección (ancho completo)
+        draw.rounded_rectangle(
+            [MG, y, canvas_w - MG, y + SEC_H],
+            radius=4, fill=D["bg_sec_hdr"], outline=D["border"]
+        )
+        draw.text((MG + 10, y + 7), sec_data["titulo"],
+                  font=f_sec, fill=D["col_accent"])
+        y += SEC_H + GAP
+
+        # Cards de la sección
+        for i, row in enumerate(filas):
+            r   = i // COLS
+            c   = i % COLS
+            cx  = MG + c * (CARD_W + COL_GAP)
+            cy  = y + r * (CARD_H + GAP)
+
+            is_mep  = row["fuente"] == "MEP"
+            precio  = row["precio"]
+            pct     = row["pct"]
+            color_v = (D["mep_accent"] if is_mep
+                       else _color_var(pct, D))
+
+            draw.rounded_rectangle(
+                [cx, cy, cx + CARD_W, cy + CARD_H],
+                radius=5, fill=D["bg_card"], outline=D["border"]
+            )
+            # Barra lateral de color
+            draw.rectangle(
+                [cx, cy + 4, cx + 3, cy + CARD_H - 4],
+                fill=color_v
+            )
+
+            x0 = cx + 12
+            ticker_color = D["mep_accent"] if is_mep else D["text_white"]
+            draw.text((x0, cy + 4),  row["symbol"], font=f_ticker, fill=ticker_color)
+            draw.text((x0, cy + 21), row["nombre"], font=f_nombre, fill=D["text_muted"])
+            draw.text((x0, cy + 33), _fmt_precio(precio), font=f_precio, fill=D["text_white"])
+
+            if pct is not None:
+                draw.text((x0, cy + 60),
+                          f"{_flecha(pct)} {pct:+.2f}%",
+                          font=f_pct, fill=color_v)
+            else:
+                draw.text((x0, cy + 60), "Sin dato",
+                          font=f_nombre, fill=D["neutral"])
+
+        y += n_rows * (CARD_H + GAP) + GAP
+
+    path = ARCHIVOS["visor_rf_img"]
+    img.save(path, "PNG", optimize=True)
+    print(f"✅ Visor RF guardado: {path}  ({canvas_w}×{canvas_h}px)")
+    return path
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECCIÓN 6 — VISOR ARG (ADRs / Stocks / CEDEARs)
+# ═══════════════════════════════════════════════════════════════════
+
 def _dato_activo(symbol: str, fuente: str, cache: dict) -> tuple:
     if fuente not in cache:
         cache[fuente] = _fetch_api(fuente)
-    data = cache[fuente]
-    item = data.get(symbol)
+    item = cache[fuente].get(symbol)
     if item:
         return float(item.get("c", 0)), float(item.get("pct_change", 0))
     return None, None
 
-def _color_variacion(pct, D):
-    if pct is None:  return D["neutral"]
-    if pct > 0:      return D["up"]
-    if pct < 0:      return D["down"]
-    return D["neutral"]
-
-def _flecha(pct):
-    if pct is None: return "—"
-    if pct > 0:  return "▲"
-    if pct < 0:  return "▼"
-    return "▬"
-
 def generar_Visor_ARG() -> str:
-    D    = DISEÑO_VISOR_ARG
-    ts   = hhmm()
-    hoy  = hora_ar().strftime("%d/%m/%Y")
+    D     = DISEÑO_VISOR_ARG
+    ts    = hhmm()
+    hoy   = hora_ar().strftime("%d/%m/%Y")
     cache = {}
 
     print(f"🃏 Generando Visor ARG ({ts})...")
@@ -420,7 +377,7 @@ def generar_Visor_ARG() -> str:
             precio, pct = _dato_activo(ticker, col["fuente"], cache)
             filas_col.append({"ticker": ticker, "nombre": nombre,
                                "precio": precio, "pct": pct})
-            p_str = f"${precio:.2f}" if precio else "—"
+            p_str = _fmt_precio(precio)
             v_str = f"{pct:+.2f}%" if pct is not None else "—"
             print(f"  [{col['cabecera']}] {ticker}: {p_str} {v_str}")
         datos_cols.append(filas_col)
@@ -431,28 +388,26 @@ def generar_Visor_ARG() -> str:
     mg      = D["margin"]
     pad     = D["padding"]
     col_gap = D["col_gap"]
-
-    header_h  = 56
-    col_hdr_h = 26
-    n_filas   = max(len(d) for d in datos_cols)
+    hdr_h   = 56
+    chdr_h  = 26
+    n_filas = max(len(d) for d in datos_cols)
 
     canvas_w = mg * 2 + cw * 3 + col_gap * 2
-    canvas_h = (mg + header_h + col_hdr_h + gap
-                + n_filas * (ch + gap) + mg)
+    canvas_h = mg + hdr_h + chdr_h + gap + n_filas * (ch + gap) + mg
 
     img  = Image.new("RGB", (canvas_w, canvas_h), D["bg_canvas"])
     draw = ImageDraw.Draw(img)
 
     f_header  = _get_font(D["font_header"],  bold=True)
-    f_sub     = _get_font(D["font_sub"],     bold=False)
+    f_sub     = _get_font(D["font_sub"])
     f_col_hdr = _get_font(D["font_col_hdr"], bold=True)
     f_ticker  = _get_font(D["font_ticker"],  bold=True)
-    f_nombre  = _get_font(D["font_nombre"],  bold=False)
+    f_nombre  = _get_font(D["font_nombre"])
     f_precio  = _get_font(D["font_precio"],  bold=True)
-    f_pct     = _get_font(D["font_pct"],     bold=False)
+    f_pct     = _get_font(D["font_pct"])
 
     draw.rounded_rectangle(
-        [mg, mg, canvas_w - mg, mg + header_h],
+        [mg, mg, canvas_w - mg, mg + hdr_h],
         radius=8, fill=D["bg_header"], outline=D["border"]
     )
     draw.text((mg + pad, mg + 8),
@@ -461,25 +416,24 @@ def generar_Visor_ARG() -> str:
               f"{ts} AR  ·  {hoy}  ·  {MENSAJES['fuente_datos']}",
               font=f_sub, fill=D["text_muted"])
 
-    y_col_hdr = mg + header_h
+    y_chdr = mg + hdr_h
     for ci, col in enumerate(columnas):
         cx = mg + ci * (cw + col_gap)
         draw.rounded_rectangle(
-            [cx, y_col_hdr, cx + cw, y_col_hdr + col_hdr_h],
+            [cx, y_chdr, cx + cw, y_chdr + chdr_h],
             radius=4, fill=D["bg_col_hdr"], outline=D["border"]
         )
-        draw.text((cx + pad, y_col_hdr + 6),
+        draw.text((cx + pad, y_chdr + 6),
                   col["cabecera"], font=f_col_hdr, fill=D["col_accent"])
 
-    y_start = mg + header_h + col_hdr_h + gap
-
+    y_start = mg + hdr_h + chdr_h + gap
     for ci, (col, filas_col) in enumerate(zip(columnas, datos_cols)):
         cx = mg + ci * (cw + col_gap)
         for ri, row in enumerate(filas_col):
             y       = y_start + ri * (ch + gap)
             precio  = row["precio"]
             pct     = row["pct"]
-            color_v = _color_variacion(pct, D)
+            color_v = _color_var(pct, D)
 
             draw.rounded_rectangle(
                 [cx, y, cx + cw, y + ch],
@@ -490,18 +444,11 @@ def generar_Visor_ARG() -> str:
             x0 = cx + pad
             draw.text((x0, y + 5),  row["ticker"], font=f_ticker, fill=D["text_white"])
             draw.text((x0, y + 24), row["nombre"], font=f_nombre, fill=D["text_muted"])
+            draw.text((x0, y + 38), _fmt_precio(precio), font=f_precio, fill=D["text_white"])
 
-            if precio is not None:
-                if precio >= 1000:
-                    p_str = f"${precio:,.0f}"
-                elif precio >= 10:
-                    p_str = f"${precio:.2f}"
-                else:
-                    p_str = f"${precio:.3f}"
-                draw.text((x0, y + 38), p_str,
-                          font=f_precio, fill=D["text_white"])
-                pct_str = f"{_flecha(pct)} {pct:+.2f}%"
-                draw.text((x0, y + 62), pct_str,
+            if pct is not None:
+                draw.text((x0, y + 62),
+                          f"{_flecha(pct)} {pct:+.2f}%",
                           font=f_pct, fill=color_v)
             else:
                 draw.text((x0, y + 38), "Sin dato",
@@ -514,16 +461,10 @@ def generar_Visor_ARG() -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SECCIÓN 6 — VISOR BCRA (Tarjeta PNG con Pillow)  — v3
-# Columnas: INDICADOR | FECHA | VALOR
-# La FECHA es la real de la API (ultFechaInformada de bcra-connector).
+# SECCIÓN 7 — VISOR BCRA
 # ═══════════════════════════════════════════════════════════════════
 
 def _bcra_variable(var_id: int, todas: dict) -> tuple:
-    """
-    Retorna (valor: float|None, fecha: str|None).
-    fecha se formatea DD/MM/YYYY a partir de ultFechaInformada.
-    """
     item = todas.get(var_id)
     if item is None:
         return None, None
@@ -536,12 +477,7 @@ def _bcra_variable(var_id: int, todas: dict) -> tuple:
     except Exception:
         return None, None
 
-
 def _bcra_buscar_por_descripcion(todas: dict, palabras_clave: list) -> tuple:
-    """
-    Búsqueda dinámica por palabras clave en la descripción de la variable.
-    Retorna (valor: float|None, fecha: str|None).
-    """
     palabras_lower = [p.lower() for p in palabras_clave]
     for var_id, v in todas.items():
         desc = getattr(v, "descripcion", "") or ""
@@ -557,107 +493,78 @@ def _bcra_buscar_por_descripcion(todas: dict, palabras_clave: list) -> tuple:
                 pass
     return None, None
 
-
 def _riesgo_pais() -> tuple:
-    """
-    Riesgo País desde argentinadatos.com.
-    Retorna (valor: float|None, fecha: str|None).
-    """
     try:
         data = fetch_with_retry(APIS["RIESGO_PAIS"], retries=3, timeout=8)
-        if isinstance(data, list) and len(data) > 0:
-            ultimo     = data[-1]
-            valor      = float(ultimo.get("valor", 0))
-            fecha_raw  = ultimo.get("fecha", "")
-            fecha      = None
-            if fecha_raw:
-                fecha = datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+        if isinstance(data, list) and data:
+            ultimo    = data[-1]
+            valor     = float(ultimo.get("valor", 0))
+            fecha_raw = ultimo.get("fecha", "")
+            fecha     = (datetime.strptime(fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+                         if fecha_raw else None)
             print(f"    ✅ Riesgo País: {valor} bps — {fecha}")
             return valor, fecha
     except Exception as e:
         print(f"    ⚠️  Riesgo País: {e}")
     return None, None
 
-
 def _formatear_bcra(fmt: str, valor) -> str:
-    if valor is None:
-        return "—"
+    if valor is None: return "—"
     try:
         v = float(valor)
         if fmt == "bps":     return f"{int(v):,} bps"
-        if fmt == "usd4":    return f"$ {v:,.4f}"
         if fmt == "usd_m":   return f"u$s {v:,.0f} M"
         if fmt == "pesos_m": return f"$ {v/1_000:,.0f} M"
         if fmt == "pesos":   return f"$ {v:,.2f}"
         if fmt == "pct2":    return f"{v:.2f} %"
-        if fmt == "ratio":   return f"{v:,.2f}"
         if fmt == "num6":    return f"{v:.6f}"
         return f"{v:,.4f}"
     except Exception:
         return "—"
 
-
 def generar_Visor_BCRA() -> str:
-    """
-    Genera la tarjeta PNG del Visor BCRA con columnas INDICADOR | FECHA | VALOR.
-    Cada fila muestra la FECHA REAL del dato según la API del BCRA.
-    Retorna el path del PNG generado.
-    """
     D   = DISEÑO_VISOR_BCRA
     hoy = hora_ar().strftime("%d/%m/%Y")
     ts  = hhmm()
 
     print(f"\n🏦 Generando Visor BCRA ({ts})...")
 
-    # ── 1. Descargar TODAS las variables BCRA ────────────────────
     todas = {}
     try:
         from bcra_connector import BCRAConnector
         conn      = BCRAConnector(verify_ssl=False)
         variables = conn.get_principales_variables()
         todas     = {v.idVariable: v for v in variables}
-        print(f"  ✅ bcra-connector: {len(todas)} variables descargadas")
+        print(f"  ✅ bcra-connector: {len(todas)} variables")
     except Exception as e:
         print(f"  ⚠️  bcra-connector: {e}")
 
-    # ── 2. Riesgo País ────────────────────────────────────────────
     rp_valor, rp_fecha = _riesgo_pais()
 
-    # Fallbacks para IDs que el BCRA puede discontinuar
     FALLBACKS_BCRA = {
         44: ["tamar", "bancos", "privados"],
         15: ["base", "monetaria"],
     }
 
-    # ── 3. Recolectar valores y fechas ────────────────────────────
-    # raw = { id_var: {"valor": float|None, "fecha": str|None} }
     raw = {}
     for (var_id, etiqueta, fmt) in VISOR_BCRA_ITEMS:
-
         if var_id is None:
             raw[var_id] = {"valor": rp_valor, "fecha": rp_fecha}
-
         elif isinstance(var_id, str) and var_id.startswith("calc:"):
             ids    = var_id[5:].split("/")
-            id_num = int(ids[0])
-            id_den = int(ids[1])
-            v_num, f_num = _bcra_variable(id_num, todas)
-            v_den, _     = _bcra_variable(id_den, todas)
-            resultado    = (v_num / v_den) if (v_num and v_den) else None
-            # Fecha del numerador como referencia
-            raw[var_id] = {"valor": resultado, "fecha": f_num}
-
+            v_num, f_num = _bcra_variable(int(ids[0]), todas)
+            v_den, _     = _bcra_variable(int(ids[1]), todas)
+            raw[var_id]  = {"valor": (v_num / v_den if v_num and v_den else None),
+                             "fecha": f_num}
         else:
             valor, fecha = _bcra_variable(var_id, todas)
             if valor is None and var_id in FALLBACKS_BCRA:
                 print(f"  🔍 ID {var_id} no encontrado. Buscando por descripción...")
                 valor, fecha = _bcra_buscar_por_descripcion(todas, FALLBACKS_BCRA[var_id])
             raw[var_id] = {"valor": valor, "fecha": fecha}
-
         entry = raw[var_id]
         print(f"  → {etiqueta}: {_formatear_bcra(fmt, entry['valor'])}  [{entry['fecha'] or '—'}]")
 
-    # ── 4. Dibujar tarjeta Pillow ─────────────────────────────────
     pad      = D["padding"]
     rh       = D["row_height"]
     n_items  = len(VISOR_BCRA_ITEMS)
@@ -669,61 +576,42 @@ def generar_Visor_BCRA() -> str:
     img  = Image.new("RGB", (canvas_w, canvas_h), D["bg"])
     draw = ImageDraw.Draw(img)
 
-    # Borde exterior
     draw.rectangle([0, 0, canvas_w - 1, canvas_h - 1],
                    outline=D["border"], width=3)
-
-    # Header azul
     draw.rectangle([0, 0, canvas_w, header_h], fill=D["header_bg"])
     fh1 = _get_font(D["font_header"], bold=True)
-    fh2 = _get_font(D["font_sub"],    bold=False)
+    fh2 = _get_font(D["font_sub"])
     draw.text((pad, 14), MENSAJES["visor_bcra_titulo"], font=fh1, fill=D["header_text"])
     draw.text((pad, 48), f"Fuente: BCRA  —  {hoy}",    font=fh2, fill="#bfdbfe")
 
-    # ── Coordenadas de las 3 columnas ────────────────────────────
-    # INDICADOR: x=pad    (~280px ancho)
-    # FECHA:     x=330    (~160px ancho)
-    # VALOR:     x=500    (hasta el borde)
-    x_label = pad
-    x_fecha = 330
-    x_valor = 500
-    x_div1  = 322   # separador vertical tras INDICADOR
-    x_div2  = 492   # separador vertical tras FECHA
+    x_label = pad;  x_fecha = 330;  x_valor = 500
+    x_div1  = 322;  x_div2  = 492
 
-    # Fila de cabeceras de columna
     col_y = header_h + 6
     fch   = _get_font(D["font_label"], bold=True)
     draw.text((x_label, col_y), "INDICADOR", font=fch, fill=D["col_header"])
     draw.text((x_fecha, col_y), "FECHA",     font=fch, fill=D["col_header"])
     draw.text((x_valor, col_y), "VALOR",     font=fch, fill=D["col_header"])
 
-    # Línea separadora bajo cabecera de columnas
     sep_y = header_h + colhdr_h
     draw.line([(pad, sep_y), (canvas_w - pad, sep_y)], fill=D["border"], width=2)
 
-    # Fuentes para filas de datos
-    fl = _get_font(D["font_label"], bold=False)   # etiqueta (normal)
-    fv = _get_font(D["font_value"], bold=True)    # valor (bold)
-    fd = _get_font(D["font_value"], bold=False)   # fecha (normal)
+    fl = _get_font(D["font_label"])
+    fv = _get_font(D["font_value"], bold=True)
+    fd = _get_font(D["font_value"])
 
     for idx, (var_id, etiqueta, fmt) in enumerate(VISOR_BCRA_ITEMS):
         y    = sep_y + idx * rh
         fill = "#dbeafe" if idx % 2 == 0 else "#e0f2fe"
         draw.rectangle([1, y, canvas_w - 1, y + rh - 1], fill=fill)
-
-        # Separadores verticales de columna
         draw.line([(x_div1, y), (x_div1, y + rh)], fill=D["divider"], width=1)
         draw.line([(x_div2, y), (x_div2, y + rh)], fill=D["divider"], width=1)
+        entry = raw.get(var_id, {"valor": None, "fecha": None})
+        draw.text((x_label, y + 11), etiqueta,                   font=fl, fill=D["label_color"])
+        draw.text((x_fecha, y + 11), entry["fecha"] or "—",      font=fd, fill=D["date_color"])
+        draw.text((x_valor, y + 11), _formatear_bcra(fmt, entry["valor"]),
+                  font=fv, fill=D["value_color"])
 
-        entry      = raw.get(var_id, {"valor": None, "fecha": None})
-        valor_str  = _formatear_bcra(fmt, entry["valor"])
-        fecha_str  = entry["fecha"] or "—"
-
-        draw.text((x_label, y + 11), etiqueta,  font=fl, fill=D["label_color"])
-        draw.text((x_fecha, y + 11), fecha_str, font=fd, fill=D["date_color"])
-        draw.text((x_valor, y + 11), valor_str, font=fv, fill=D["value_color"])
-
-    # Línea de cierre inferior
     draw.line([(pad, sep_y + n_items * rh), (canvas_w - pad, sep_y + n_items * rh)],
               fill=D["border"], width=2)
 
@@ -748,53 +636,51 @@ if __name__ == "__main__":
 
     limpiar_estado_viejo()
 
-    ahora = hhmm()
+    tareas = [t for t, h in HORARIOS.items() if es_hora_exacta(h)]
 
-    tareas_a_ejecutar = [
-        tarea for tarea, horario in HORARIOS.items()
-        if es_hora_exacta(horario)
-    ]
-
-    if not tareas_a_ejecutar:
+    if not tareas:
+        ahora = hhmm()
         print(f"⏰ No hay tarea programada para {ahora}")
-        print("💡 Los horarios configurados son:")
-        for tarea, horario in HORARIOS.items():
-            print(f"   - {tarea}: {horario}")
+        print("💡 Horarios configurados:")
+        for t, h in HORARIOS.items():
+            print(f"   - {t}: {h}")
         sys.exit(0)
 
-    print(f"📋 Tareas detectadas: {', '.join(tareas_a_ejecutar)}")
+    print(f"📋 Tareas detectadas: {', '.join(tareas)}")
     print()
 
-    for tarea_ejecutar in tareas_a_ejecutar:
-
-        if ya_se_envio(tarea_ejecutar):
-            print(f"⏭️  {tarea_ejecutar}: ya enviado hoy. Saltando.")
+    for tarea in tareas:
+        if ya_se_envio(tarea):
+            print(f"⏭️  {tarea}: ya enviado hoy. Saltando.")
             continue
 
-        print(f"▶️  Ejecutando: {tarea_ejecutar}")
+        print(f"▶️  Ejecutando: {tarea}")
+        ts  = hhmm()
+        hoy = hora_ar().strftime("%d/%m/%Y")
 
-        if tarea_ejecutar.startswith("imagen"):
-            estado = "Cerrado" if "cierre" in tarea_ejecutar else "Abierto"
-            generar_Imagen_ARG(estado=estado)
-            marcar_enviado(tarea_ejecutar)
+        # ── Visor Renta Fija ─────────────────────────────────────
+        if tarea.startswith("visor_rf"):
+            path    = generar_Visor_RF_ARG()
+            caption = f"{MENSAJES['visor_rf_tg']} — {ts} AR  ·  {hoy}"
+            tg_foto(path, caption)
+            print(f"  📨 Visor RF enviado a Telegram")
+            marcar_enviado(tarea)
 
-        elif tarea_ejecutar.startswith("visor_arg"):
-            path = generar_Visor_ARG()
-            ts   = hhmm()
-            hoy  = hora_ar().strftime("%d/%m/%Y")
+        # ── Visor ARG ────────────────────────────────────────────
+        elif tarea.startswith("visor_arg"):
+            path    = generar_Visor_ARG()
             caption = f"{MENSAJES['visor_arg_tg']} — {ts} AR  ·  {hoy}"
             tg_foto(path, caption)
             print(f"  📨 Visor ARG enviado a Telegram")
-            marcar_enviado(tarea_ejecutar)
+            marcar_enviado(tarea)
 
-        elif tarea_ejecutar == "visor_bcra":
-            path = generar_Visor_BCRA()
-            ts   = hhmm()
-            hoy  = hora_ar().strftime("%d/%m/%Y")
+        # ── Visor BCRA ───────────────────────────────────────────
+        elif tarea == "visor_bcra":
+            path    = generar_Visor_BCRA()
             caption = f"{MENSAJES['visor_bcra_tg']} — {hoy}"
             tg_foto(path, caption)
             print(f"  📨 Visor BCRA enviado a Telegram")
-            marcar_enviado(tarea_ejecutar)
+            marcar_enviado(tarea)
 
         print()
 
