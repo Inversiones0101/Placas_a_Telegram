@@ -88,16 +88,19 @@ VISOR_RF_SECCIONES = [
     {
         "titulo": "SOBERANOS ($ & USD)",
         "items": [
-            # symbol       nombre_display            fuente
-            ("AL30",      "AL30 - Ley Local $",     "BONOS"),
-            ("AL30D",     "AL30 - Ley Local USD",   "BONOS"),
-            ("MEP/AL30",  "Tipo Cambio MEP",         "MEP"),
-            ("GD30",      "GD30 - Ley NY $",        "BONOS"),
-            ("GD30D",     "GD30 - Ley NY USD",      "BONOS"),
-            ("MEP/GD30",  "Tipo Cambio MEP",         "MEP"),
-            ("TX28",      "TX28 - Boncer CER $",    "BONOS"),
-            ("TX28D",     "TX28 - Boncer USD Eq",   "BONOS"),
-            ("MEP/TX28",  "TC MEP Implícito",        "MEP"),
+            # symbol   nombre_display            fuente
+            # Fuente "BONOS" → campo "c" (precio cierre en $)
+            # Fuente "MEP"   → calcula ars_bid / usd_ask (TC implícito $/USD)
+            # El symbol MEP coincide con el ticker en data912.com/live/mep
+            ("AL30",   "AL30 - Ley Local $",     "BONOS"),
+            ("AL30D",  "AL30 - Ley Local USD",   "BONOS"),
+            ("AL30",   "MEP / AL30",              "MEP"),
+            ("GD30",   "GD30 - Ley NY $",        "BONOS"),
+            ("GD30D",  "GD30 - Ley NY USD",      "BONOS"),
+            ("GD30",   "MEP / GD30",              "MEP"),
+            ("TX28",   "TX28 - Boncer CER $",    "BONOS"),
+            ("TX28D",  "TX28 - Boncer USD Eq",   "BONOS"),
+            ("TX28",   "MEP / TX28",              "MEP"),
         ],
     },
     {
